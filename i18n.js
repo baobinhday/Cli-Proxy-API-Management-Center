@@ -118,6 +118,10 @@ const i18n = {
             'basic_settings.request_log_enable': '启用请求日志',
             'basic_settings.ws_auth_title': 'WebSocket 鉴权',
             'basic_settings.ws_auth_enable': '启用 /ws/* 鉴权',
+            'basic_settings.storage_readonly_title': '存储只读',
+            'basic_settings.storage_readonly_enable': '启用存储只读模式',
+            'basic_settings.sync_interval_label': '同步间隔',
+            'basic_settings.sync_interval_placeholder': '请输入同步间隔（分钟）',
 
             // API 密钥管理
             'api_keys.title': 'API 密钥管理',
@@ -561,6 +565,9 @@ const i18n = {
             'notification.logging_to_file_updated': '日志记录设置已更新',
             'notification.request_log_updated': '请求日志设置已更新',
             'notification.ws_auth_updated': 'WebSocket 鉴权设置已更新',
+            'notification.storage_readonly_updated': '存储只读设置已更新',
+            'notification.sync_interval_updated': '同步间隔设置已更新',
+            'notification.sync_interval_invalid': '同步间隔必须是大于0的整数',
             'notification.api_key_added': 'API密钥添加成功',
             'notification.api_key_updated': 'API密钥更新成功',
             'notification.api_key_deleted': 'API密钥删除成功',
@@ -737,6 +744,10 @@ const i18n = {
             'basic_settings.request_log_enable': 'Enable request logging',
             'basic_settings.ws_auth_title': 'WebSocket Authentication',
             'basic_settings.ws_auth_enable': 'Require auth for /ws/*',
+            'basic_settings.storage_readonly_title': 'Storage Readonly',
+            'basic_settings.storage_readonly_enable': 'Enable storage readonly mode',
+            'basic_settings.sync_interval_label': 'Sync Interval',
+            'basic_settings.sync_interval_placeholder': 'Enter sync interval (minutes)',
 
             // API Keys management
             'api_keys.title': 'API Keys Management',
@@ -1179,6 +1190,9 @@ const i18n = {
             'notification.logging_to_file_updated': 'Logging settings updated',
             'notification.request_log_updated': 'Request logging setting updated',
             'notification.ws_auth_updated': 'WebSocket authentication setting updated',
+            'notification.storage_readonly_updated': 'Storage readonly setting updated',
+            'notification.sync_interval_updated': 'Sync interval setting updated',
+            'notification.sync_interval_invalid': 'Sync interval must be a positive integer',
             'notification.api_key_added': 'API key added successfully',
             'notification.api_key_updated': 'API key updated successfully',
             'notification.api_key_deleted': 'API key deleted successfully',

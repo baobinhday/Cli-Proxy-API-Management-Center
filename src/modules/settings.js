@@ -224,6 +224,102 @@ export async function updateWsAuth(enabled) {
     }
 }
 
+export async function loadStorageReadonlySetting() {
+    try {
+        const response = await this.makeRequest('/storage/readonly', { method: 'GET' });
+        if (response && response.value !== undefined) {
+            const toggle = document.getElementById('storage-readonly-toggle');
+            if (toggle) {
+                toggle.checked = response.value;
+                // Show/hide the sync interval input based on the toggle state
+                this.toggleSyncIntervalInput(response.value);
+            }
+        }
+    } catch (error) {
+        this.errorHandler.handleLoadError(error, i18n.t('basic_settings.storage_readonly_title') || '存储只读设置');
+    }
+}
+
+export async function updateStorageReadonly(enabled) {
+    const previousValue = !enabled;
+    try {
+        await this.makeRequest('/storage/readonly', {
+            method: 'PUT',
+            body: JSON.stringify({ value: enabled })
+        });
+        this.clearCache('storage-readonly'); // 仅清除 storage-readonly 配置段的缓存
+        this.showNotification(i18n.t('notification.storage_readonly_updated'), 'success');
+        // Show/hide the sync interval input based on the toggle state
+        this.toggleSyncIntervalInput(enabled);
+    } catch (error) {
+        this.errorHandler.handleUpdateError(
+            error,
+            i18n.t('basic_settings.storage_readonly_title') || '存储只读设置',
+            () => {
+                const toggle = document.getElementById('storage-readonly-toggle');
+                if (toggle) {
+                    toggle.checked = previousValue;
+                    this.toggleSyncIntervalInput(previousValue);
+                }
+            }
+        );
+    }
+}
+
+export async function loadSyncIntervalSetting() {
+    try {
+        const response = await this.makeRequest('/storage/sync-interval', { method: 'GET' });
+        if (response && response.value !== undefined) {
+            const syncIntervalInput = document.getElementById('sync-interval');
+            if (syncIntervalInput) {
+                syncIntervalInput.value = response.value;
+                syncIntervalInput.setAttribute('data-previous-value', response.value.toString());
+            }
+        }
+    } catch (error) {
+        this.errorHandler.handleLoadError(error, i18n.t('basic_settings.sync_interval_label') || '同步间隔设置');
+    }
+}
+
+export async function updateSyncInterval() {
+    const syncIntervalInput = document.getElementById('sync-interval');
+    const syncInterval = parseInt(syncIntervalInput.value);
+    const previousValue = syncIntervalInput.getAttribute('data-previous-value') || '5';
+
+    if (isNaN(syncInterval) || syncInterval < 1) {
+        this.showNotification(i18n.t('notification.sync_interval_invalid'), 'error');
+        syncIntervalInput.value = previousValue;
+        return;
+    }
+
+    try {
+        await this.makeRequest('/storage/sync-interval', {
+            method: 'PUT',
+            body: JSON.stringify({ value: syncInterval })
+        });
+        this.clearCache('storage-sync-interval'); // 仅清除 storage-sync-interval 配置段的缓存
+        syncIntervalInput.setAttribute('data-previous-value', syncInterval.toString());
+        this.showNotification(i18n.t('notification.sync_interval_updated'), 'success');
+    } catch (error) {
+        this.showNotification(`${i18n.t('notification.update_failed')}: ${error.message}`, 'error');
+        syncIntervalInput.value = previousValue;
+    }
+}
+
+// Function to toggle the visibility of the sync interval input based on storage readonly toggle
+export function toggleSyncIntervalInput(show) {
+    const syncIntervalGroup = document.getElementById('sync-interval-group');
+    if (syncIntervalGroup) {
+        syncIntervalGroup.style.display = show ? 'block' : 'none';
+    }
+}
+
+// Load all storage-related settings
+export async function loadStorageSettings() {
+    await this.loadStorageReadonlySetting();
+    await this.loadSyncIntervalSetting();
+}
+
 export async function updateLoggingToFile(enabled) {
     try {
         await this.makeRequest('/logging-to-file', {
@@ -350,6 +446,30 @@ export async function applySettingsFromConfig(config = {}, keyStats = null) {
             wsAuthToggle.checked = config['ws-auth'];
         }
     }
+    // 存储只读设置
+    if (config['storage-readonly'] !== undefined) {
+        const storageReadonlyToggle = document.getElementById('storage-readonly-toggle');
+        if (storageReadonlyToggle) {
+            storageReadonlyToggle.checked = config['storage-readonly'];
+            // Show/hide the sync interval input based on the toggle state
+            if (typeof this.toggleSyncIntervalInput === 'function') {
+                this.toggleSyncIntervalInput(config['storage-readonly']);
+            } else {
+                // Fallback: directly show/hide the sync interval group
+                const syncIntervalGroup = document.getElementById('sync-interval-group');
+                if (syncIntervalGroup) {
+                    syncIntervalGroup.style.display = config['storage-readonly'] ? 'block' : 'none';
+                }
+            }
+        }
+    }
+    // 同步间隔设置
+    if (config['storage-sync-interval'] !== undefined) {
+        const syncIntervalInput = document.getElementById('sync-interval');
+        if (syncIntervalInput) {
+            syncIntervalInput.value = config['storage-sync-interval'];
+        }
+    }
 
     // API 密钥
     if (config['api-keys'] && typeof this.renderApiKeys === 'function') {
@@ -382,10 +502,30 @@ export function registerSettingsListeners() {
     if (!this.events || typeof this.events.on !== 'function') {
         return;
     }
-    this.events.on('data:config-loaded', (event) => {
+    this.events.on('data:config-loaded', async (event) => {
         const detail = event?.detail || {};
         this.applySettingsFromConfig(detail.config || {}, detail.keyStats || null);
+        // Load storage-specific settings that may not be in the main config
+        await this.loadStorageSettings();
     });
+
+    // Add event listener for storage readonly toggle to update the setting and show/hide sync interval input
+    const storageReadonlyToggle = document.getElementById('storage-readonly-toggle');
+    if (storageReadonlyToggle) {
+        storageReadonlyToggle.addEventListener('change', (event) => {
+            const isChecked = event.target.checked;
+            this.updateStorageReadonly(isChecked);
+            this.toggleSyncIntervalInput(isChecked);
+        });
+    }
+
+    // Add event listener for the update sync interval button
+    const updateSyncIntervalButton = document.getElementById('update-sync-interval');
+    if (updateSyncIntervalButton) {
+        updateSyncIntervalButton.addEventListener('click', () => {
+            this.updateSyncInterval();
+        });
+    }
 }
 
 export const settingsModule = {
@@ -406,6 +546,12 @@ export const settingsModule = {
     updateLoggingToFile,
     updateSwitchProject,
     updateSwitchPreviewModel,
+    loadStorageReadonlySetting,
+    updateStorageReadonly,
+    loadSyncIntervalSetting,
+    updateSyncInterval,
+    loadStorageSettings,
+    toggleSyncIntervalInput,
     applySettingsFromConfig,
     registerSettingsListeners
 };
