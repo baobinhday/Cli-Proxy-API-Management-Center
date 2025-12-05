@@ -227,12 +227,12 @@ export async function updateWsAuth(enabled) {
 export async function loadStorageReadonlySetting() {
     try {
         const response = await this.makeRequest('/storage/readonly', { method: 'GET' });
-        if (response && response.value !== undefined) {
+        if (response && response.read_only !== undefined) {
             const toggle = document.getElementById('storage-readonly-toggle');
             if (toggle) {
-                toggle.checked = response.value;
+                toggle.checked = response.read_only;
                 // Show/hide the sync interval input based on the toggle state
-                this.toggleSyncIntervalInput(response.value);
+                this.toggleSyncIntervalInput(response.read_only);
             }
         }
     } catch (error) {
@@ -269,11 +269,11 @@ export async function updateStorageReadonly(enabled) {
 export async function loadSyncIntervalSetting() {
     try {
         const response = await this.makeRequest('/storage/sync-interval', { method: 'GET' });
-        if (response && response.value !== undefined) {
+        if (response && response.sync_interval_minutes !== undefined) {
             const syncIntervalInput = document.getElementById('sync-interval');
             if (syncIntervalInput) {
-                syncIntervalInput.value = response.value;
-                syncIntervalInput.setAttribute('data-previous-value', response.value.toString());
+                syncIntervalInput.value = response.sync_interval_minutes;
+                syncIntervalInput.setAttribute('data-previous-value', response.sync_interval_minutes.toString());
             }
         }
     } catch (error) {
