@@ -2,6 +2,8 @@
 // 这些函数依赖于 CLIProxyManager 实例上的 makeRequest/getConfig/clearCache/showNotification 等能力，
 // 以及 apiKeysModule 中的工具方法（如 applyHeadersToConfig/renderHeaderBadges）。
 
+import { normalizeModelList } from '../utils/models.js';
+
 const getStatsBySource = (stats) => {
     if (stats && typeof stats === 'object' && stats.bySource) {
         return stats.bySource;
@@ -21,42 +23,17 @@ const buildModelEndpoint = (baseUrl) => {
     return `${trimmed}/v1/models`;
 };
 
-const normalizeModelList = (payload) => {
-    const toModel = (entry) => {
-        if (typeof entry === 'string') {
-            return { name: entry };
-        }
-        if (!entry || typeof entry !== 'object') {
-            return null;
-        }
-        const name = entry.id || entry.name || entry.model || entry.value;
-        if (!name) return null;
-        const alias = entry.alias || entry.display_name || entry.displayName;
-        const description = entry.description || entry.note || entry.comment;
-        const model = { name: String(name) };
-        if (alias && alias !== name) {
-            model.alias = String(alias);
-        }
-        if (description) {
-            model.description = String(description);
-        }
-        return model;
-    };
-
-    if (Array.isArray(payload)) {
-        return payload.map(toModel).filter(Boolean);
+const buildChatCompletionsEndpoint = (baseUrl) => {
+    if (!baseUrl) return '';
+    const trimmed = String(baseUrl).trim().replace(/\/+$/g, '');
+    if (!trimmed) return '';
+    if (trimmed.endsWith('/chat/completions')) {
+        return trimmed;
     }
-
-    if (payload && typeof payload === 'object') {
-        if (Array.isArray(payload.data)) {
-            return payload.data.map(toModel).filter(Boolean);
-        }
-        if (Array.isArray(payload.models)) {
-            return payload.models.map(toModel).filter(Boolean);
-        }
+    if (trimmed.endsWith('/v1')) {
+        return `${trimmed}/chat/completions`;
     }
-
-    return [];
+    return `${trimmed}/v1/chat/completions`;
 };
 
 const normalizeExcludedModels = (input) => {
@@ -128,25 +105,7 @@ export function getGeminiKeysFromConfig(config) {
     }
 
     const geminiKeys = Array.isArray(config['gemini-api-key']) ? config['gemini-api-key'] : [];
-    if (geminiKeys.length > 0) {
-        return geminiKeys;
-    }
-
-    const legacyKeys = Array.isArray(config['generative-language-api-key']) ? config['generative-language-api-key'] : [];
-    return legacyKeys
-        .map(item => {
-            if (item && typeof item === 'object') {
-                return { ...item };
-            }
-            if (typeof item === 'string') {
-                const trimmed = item.trim();
-                if (trimmed) {
-                    return { 'api-key': trimmed };
-                }
-            }
-            return null;
-        })
-        .filter(Boolean);
+    return geminiKeys;
 }
 
 export async function renderGeminiKeys(keys, keyStats = null) {
@@ -1152,6 +1111,10 @@ function ensureOpenAIModelDiscoveryCard(manager) {
                     <button type="button" class="btn btn-secondary" id="openai-model-discovery-refresh">${i18n.t('ai_providers.openai_models_fetch_refresh')}</button>
                 </div>
             </div>
+            <div class="form-group">
+                <label for="openai-model-discovery-search">${i18n.t('ai_providers.openai_models_search_label')}</label>
+                <input type="text" id="openai-model-discovery-search" placeholder="${i18n.t('ai_providers.openai_models_search_placeholder')}">
+            </div>
             <div id="openai-model-discovery-status" class="model-discovery-status"></div>
             <div id="openai-model-discovery-list" class="model-discovery-list"></div>
             <div class="modal-actions">
@@ -1174,6 +1137,13 @@ function ensureOpenAIModelDiscoveryCard(manager) {
     bind('openai-model-discovery-cancel', () => manager.closeOpenAIModelDiscovery());
     bind('openai-model-discovery-refresh', () => manager.refreshOpenAIModelDiscovery());
     bind('openai-model-discovery-apply', () => manager.applyOpenAIModelDiscoverySelection());
+    const searchInput = document.getElementById('openai-model-discovery-search');
+    if (searchInput) {
+        searchInput.addEventListener('input', (event) => {
+            const query = event?.target?.value || '';
+            manager.setOpenAIModelDiscoverySearch(query);
+        });
+    }
 
     return overlay;
 }
@@ -1185,9 +1155,29 @@ export function setOpenAIModelDiscoveryStatus(message = '', type = 'info') {
     status.className = `model-discovery-status ${type}`;
 }
 
+export function setOpenAIModelDiscoverySearch(query = '') {
+    if (!this.openAIModelDiscoveryContext) return;
+    const normalized = (query || '').trim();
+    this.openAIModelDiscoveryContext.modelSearchQuery = normalized;
+    const models = this.openAIModelDiscoveryContext.discoveredModels || [];
+    this.renderOpenAIModelDiscoveryList(models);
+}
+
 export function renderOpenAIModelDiscoveryList(models = []) {
     const list = document.getElementById('openai-model-discovery-list');
     if (!list) return;
+
+    const context = this.openAIModelDiscoveryContext || {};
+    const filter = (context.modelSearchQuery || '').trim().toLowerCase();
+    const filtered = models
+        .map((model, index) => ({ model, index }))
+        .filter(({ model }) => {
+            if (!filter) return true;
+            const name = (model?.name || '').toLowerCase();
+            const alias = (model?.alias || '').toLowerCase();
+            const desc = (model?.description || '').toLowerCase();
+            return name.includes(filter) || alias.includes(filter) || desc.includes(filter);
+        });
 
     if (!models.length) {
         list.innerHTML = `
@@ -1199,10 +1189,20 @@ export function renderOpenAIModelDiscoveryList(models = []) {
         return;
     }
 
-    list.innerHTML = models.map((model, index) => {
-        const name = this.escapeHtml(model.name || '');
-        const alias = model.alias ? `<span class="model-discovery-alias">${this.escapeHtml(model.alias)}</span>` : '';
-        const desc = model.description ? `<div class="model-discovery-desc">${this.escapeHtml(model.description)}</div>` : '';
+    if (!filtered.length) {
+        list.innerHTML = `
+            <div class="model-discovery-empty">
+                <i class="fas fa-search"></i>
+                <span>${i18n.t('ai_providers.openai_models_search_empty')}</span>
+            </div>
+        `;
+        return;
+    }
+
+    list.innerHTML = filtered.map(({ model, index }) => {
+        const name = this.escapeHtml(model?.name || '');
+        const alias = model?.alias ? `<span class="model-discovery-alias">${this.escapeHtml(model.alias)}</span>` : '';
+        const desc = model?.description ? `<div class="model-discovery-desc">${this.escapeHtml(model.description)}</div>` : '';
         return `
             <label class="model-discovery-row">
                 <input type="checkbox" class="model-discovery-checkbox" data-model-index="${index}">
@@ -1244,12 +1244,17 @@ export function openOpenAIModelDiscovery(mode = 'new') {
         ...context,
         endpoint,
         headers,
-        discoveredModels: []
+        discoveredModels: [],
+        modelSearchQuery: ''
     };
 
     const urlInput = document.getElementById('openai-model-discovery-url');
     if (urlInput) {
         urlInput.value = endpoint;
+    }
+    const searchInput = document.getElementById('openai-model-discovery-search');
+    if (searchInput) {
+        searchInput.value = '';
     }
 
     this.renderOpenAIModelDiscoveryList([]);
@@ -1270,9 +1275,25 @@ export async function refreshOpenAIModelDiscovery() {
     }
 
     try {
-        const response = await fetch(context.endpoint, {
-            headers: context.headers || {}
-        });
+        let response;
+        let usedSimpleRequest = false;
+
+        try {
+            // 首先尝试正常的带自定义headers的请求
+            response = await fetch(context.endpoint, {
+                headers: context.headers || {}
+            });
+        } catch (error) {
+            // 如果fetch失败(通常是CORS预检失败),尝试简单GET请求
+            console.warn('Normal fetch failed, trying simple GET request:', error);
+            usedSimpleRequest = true;
+            response = await fetch(context.endpoint, {
+                method: 'GET',
+                mode: 'cors',
+                credentials: 'omit'
+                // 不发送自定义headers,避免触发OPTIONS预检
+            });
+        }
 
         if (!response.ok) {
             throw new Error(`${response.status} ${response.statusText}`);
@@ -1293,6 +1314,10 @@ export async function refreshOpenAIModelDiscovery() {
         if (!models.length) {
             this.setOpenAIModelDiscoveryStatus(i18n.t('ai_providers.openai_models_fetch_empty'), 'warning');
         } else {
+            if (usedSimpleRequest) {
+                // 如果使用了简单请求,提示用户
+                console.info('Models fetched using simple request (without custom headers)');
+            }
             this.setOpenAIModelDiscoveryStatus('', 'info');
         }
     } catch (error) {
@@ -1344,6 +1369,9 @@ export function applyOpenAIModelDiscoverySelection() {
     });
 
     this.populateModelFields(context.modelWrapperId, Array.from(mergedMap.values()));
+    if (context.mode === 'edit' && typeof this.populateOpenAITestModelOptions === 'function') {
+        this.populateOpenAITestModelOptions(Array.from(mergedMap.values()), { preserveInput: true });
+    }
     this.closeOpenAIModelDiscovery();
 
     if (addedCount > 0) {
@@ -1359,6 +1387,180 @@ export function closeOpenAIModelDiscovery() {
         overlay.classList.remove('active');
     }
     this.openAIModelDiscoveryContext = null;
+}
+
+export function populateOpenAITestModelOptions(models = [], { preserveInput = true } = {}) {
+    const select = document.getElementById('openai-test-model-select');
+    const input = document.getElementById('openai-test-model-input');
+    if (!select) return;
+
+    const names = [];
+    const seen = new Set();
+    (Array.isArray(models) ? models : []).forEach(model => {
+        const name = model?.name ? String(model.name).trim() : '';
+        if (!name || seen.has(name)) return;
+        seen.add(name);
+        names.push(name);
+    });
+
+    if (!names.length) {
+        select.disabled = true;
+        select.innerHTML = `<option value="">${i18n.t('ai_providers.openai_test_select_empty')}</option>`;
+        if (input && !preserveInput) {
+            input.value = '';
+        }
+        return;
+    }
+
+    select.disabled = false;
+    const placeholder = `<option value="">${i18n.t('ai_providers.openai_test_select_placeholder')}</option>`;
+    const options = names.map(name => `<option value="${this.escapeHtml(name)}">${this.escapeHtml(name)}</option>`).join('');
+    select.innerHTML = `${placeholder}${options}`;
+
+    if (input) {
+        if (!preserveInput || !input.value) {
+            const firstName = names[0];
+            if (firstName) {
+                input.value = firstName;
+                select.value = firstName;
+                return;
+            }
+        }
+
+        const current = input.value.trim();
+        if (current && names.includes(current)) {
+            select.value = current;
+        } else {
+            select.value = '';
+        }
+    }
+}
+
+export function setOpenAITestStatus(message = '', type = 'info') {
+    const statusEl = document.getElementById('openai-test-status');
+    if (!statusEl) return;
+    statusEl.textContent = message || '';
+    statusEl.className = `openai-test-status ${type || ''}`.trim();
+}
+
+const setOpenAITestButtonState = (state = 'idle') => {
+    const button = document.getElementById('openai-test-button');
+    if (!button) return;
+    button.disabled = state === 'loading';
+    button.classList.remove('openai-test-btn-success', 'openai-test-btn-error');
+
+    switch (state) {
+        case 'loading':
+            button.innerHTML = `<i class="fas fa-spinner fa-spin"></i>`;
+            break;
+        case 'success':
+            button.classList.add('openai-test-btn-success');
+            button.innerHTML = `<i class="fas fa-check"></i>`;
+            break;
+        case 'error':
+            button.classList.add('openai-test-btn-error');
+            button.innerHTML = `<i class="fas fa-times"></i>`;
+            break;
+        default:
+            button.innerHTML = `<i class="fas fa-stethoscope"></i> ${i18n.t('ai_providers.openai_test_action')}`;
+            break;
+    }
+};
+
+export async function testOpenAIProviderConnection() {
+    const baseUrlInput = document.getElementById('edit-provider-url');
+    const baseUrl = baseUrlInput ? baseUrlInput.value.trim() : '';
+    if (!baseUrl) {
+        const message = i18n.t('notification.openai_test_url_required');
+        this.setOpenAITestStatus(message, 'error');
+        this.showNotification(message, 'error');
+        return;
+    }
+
+    const endpoint = buildChatCompletionsEndpoint(baseUrl);
+    if (!endpoint) {
+        const message = i18n.t('notification.openai_test_url_required');
+        this.setOpenAITestStatus(message, 'error');
+        this.showNotification(message, 'error');
+        return;
+    }
+
+    const apiKeyEntries = this.collectApiKeyEntryInputs('edit-openai-keys-wrapper');
+    const firstKeyEntry = Array.isArray(apiKeyEntries) ? apiKeyEntries.find(entry => entry && entry['api-key']) : null;
+    if (!firstKeyEntry) {
+        const message = i18n.t('notification.openai_test_key_required');
+        this.setOpenAITestStatus(message, 'error');
+        this.showNotification(message, 'error');
+        return;
+    }
+
+    const models = this.collectModelInputs('edit-provider-models-wrapper');
+    this.populateOpenAITestModelOptions(models);
+
+    const modelInput = document.getElementById('openai-test-model-input');
+    let modelName = modelInput ? modelInput.value.trim() : '';
+    if (!modelName) {
+        const firstModel = Array.isArray(models) ? models.find(model => model && model.name) : null;
+        if (firstModel && firstModel.name) {
+            modelName = firstModel.name;
+            if (modelInput) {
+                modelInput.value = firstModel.name;
+            }
+        }
+    }
+
+    if (!modelName) {
+        const message = i18n.t('notification.openai_test_model_required');
+        this.setOpenAITestStatus(message, 'error');
+        this.showNotification(message, 'error');
+        return;
+    }
+
+    const customHeaders = this.collectHeaderInputs('edit-openai-headers-wrapper') || {};
+    const headers = {
+        'Content-Type': 'application/json',
+        ...customHeaders
+    };
+    if (!headers.Authorization && !headers.authorization) {
+        headers.Authorization = `Bearer ${firstKeyEntry['api-key']}`;
+    }
+
+    this.setOpenAITestStatus('', 'info');
+    setOpenAITestButtonState('loading');
+
+    try {
+        const response = await fetch(endpoint, {
+            method: 'POST',
+            headers,
+            body: JSON.stringify({
+                model: modelName,
+                messages: [{ role: 'user', content: 'Hi' }],
+                stream: false,
+                max_tokens: 5
+            })
+        });
+
+        const rawText = await response.text();
+
+        if (!response.ok) {
+            let errorMessage = `${response.status} ${response.statusText}`;
+            try {
+                const parsed = rawText ? JSON.parse(rawText) : null;
+                errorMessage = parsed?.error?.message || parsed?.message || errorMessage;
+            } catch (error) {
+                if (rawText) {
+                    errorMessage = rawText;
+                }
+            }
+            throw new Error(errorMessage);
+        }
+
+        this.setOpenAITestStatus('', 'info');
+        setOpenAITestButtonState('success');
+    } catch (error) {
+        this.setOpenAITestStatus(`${i18n.t('ai_providers.openai_test_failed')}: ${error.message}`, 'error');
+        setOpenAITestButtonState('error');
+    }
 }
 
 export function showAddOpenAIProviderModal() {
@@ -1498,6 +1700,18 @@ export function editOpenAIProvider(index, provider) {
                     </button>
                 </div>
             </div>
+            <div class="form-group">
+                <label>${i18n.t('ai_providers.openai_test_title')}</label>
+                <p class="form-hint">${i18n.t('ai_providers.openai_test_hint')}</p>
+                <div class="input-group openai-test-group">
+                    <select id="openai-test-model-select" aria-label="${i18n.t('ai_providers.openai_test_model_placeholder')}"></select>
+                    <input type="text" id="openai-test-model-input" placeholder="${i18n.t('ai_providers.openai_test_model_placeholder')}">
+                    <button type="button" class="btn btn-secondary" id="openai-test-button" onclick="manager.testOpenAIProviderConnection()">
+                        <i class="fas fa-stethoscope"></i> ${i18n.t('ai_providers.openai_test_action')}
+                    </button>
+                </div>
+                <div id="openai-test-status" class="openai-test-status"></div>
+            </div>
             <div class="modal-actions">
                 <button class="btn btn-secondary" onclick="manager.closeModal()">${i18n.t('common.cancel')}</button>
                 <button class="btn btn-primary" onclick="manager.updateOpenAIProvider(${index})">${i18n.t('common.update')}</button>
@@ -1508,6 +1722,28 @@ export function editOpenAIProvider(index, provider) {
     this.populateModelFields('edit-provider-models-wrapper', models);
     this.populateHeaderFields('edit-openai-headers-wrapper', provider?.headers || null);
     this.populateApiKeyEntryFields('edit-openai-keys-wrapper', apiKeyEntries);
+    this.populateOpenAITestModelOptions(models);
+    this.setOpenAITestStatus('', 'info');
+    setOpenAITestButtonState('idle');
+
+    const modelWrapper = document.getElementById('edit-provider-models-wrapper');
+    if (modelWrapper) {
+        modelWrapper.addEventListener('input', () => {
+            const currentModels = this.collectModelInputs('edit-provider-models-wrapper');
+            this.populateOpenAITestModelOptions(currentModels, { preserveInput: true });
+        });
+    }
+
+    const modelSelect = document.getElementById('openai-test-model-select');
+    if (modelSelect) {
+        modelSelect.addEventListener('change', (event) => {
+            const value = event?.target?.value || '';
+            const input = document.getElementById('openai-test-model-input');
+            if (input && value) {
+                input.value = value;
+            }
+        });
+    }
 }
 
 export async function updateOpenAIProvider(index) {
@@ -1688,8 +1924,12 @@ export const aiProvidersModule = {
     refreshOpenAIModelDiscovery,
     renderOpenAIModelDiscoveryList,
     setOpenAIModelDiscoveryStatus,
+    setOpenAIModelDiscoverySearch,
     applyOpenAIModelDiscoverySelection,
     closeOpenAIModelDiscovery,
+    populateOpenAITestModelOptions,
+    setOpenAITestStatus,
+    testOpenAIProviderConnection,
     addModelField,
     populateModelFields,
     collectModelInputs,
