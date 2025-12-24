@@ -1,106 +1,130 @@
-# Cli-Proxy-API-Management-Center
-这是一个用于管理 CLI Proxy API 的现代化 Web 界面。
+# CLI Proxy API 管理中心
+
+用于管理与排障 **CLI Proxy API** 的单文件 WebUI（React + TypeScript），通过 **Management API** 完成配置、凭据、日志与统计等运维工作。
 
 [English](README.md)
 
-主项目: https://github.com/router-for-me/CLIProxyAPI  
-示例网站: https://remote.router-for.me/  
-最低版本 ≥ 6.3.0（推荐 ≥ 6.5.0）
+**主项目**: https://github.com/router-for-me/CLIProxyAPI  
+**示例地址**: https://remote.router-for.me/  
+**最低版本要求**: ≥ 6.3.0（推荐 ≥ 6.5.0）
 
-自 6.0.19 起 WebUI 已集成到主程序中，启动后可通过 `/management.html` 访问。
+Since version 6.0.19, the WebUI ships with the main program; access it via `/management.html` on the API port once the service is running.
 
-## 功能特点
+## 这是什么（以及不是什么）
 
-### 主要能力
-- **登录与体验**: 自动检测当前地址（可自定义/重置），加密自动登录，语言/主题切换，响应式布局与移动端侧边栏。
-- **基础设置**: 调试、代理 URL、请求重试，配额溢出自动切换项目/预览模型，使用统计开关，请求日志与文件日志开关，WebSocket `/ws/*` 鉴权开关。
-- **密钥与提供商**: 管理代理服务密钥，Gemini/Codex/Claude 配置，OpenAI 兼容提供商（自定义 Base URL/Headers/Proxy/模型别名），Vertex AI 服务账号导入（可选区域）。
-- **认证文件与 OAuth**: 上传/下载/搜索/分页 JSON 凭据，类型筛选（Qwen/Gemini/GeminiCLI/AIStudio/Claude/Codex/Antigravity/iFlow/Vertex/Empty），一键删除全部；Codex、Anthropic(Claude)、Antigravity(Google)、Gemini CLI（可选项目）、Qwen 设备码、iFlow OAuth 与 Cookie 登录。
-- **日志**: 实时查看并增量刷新，支持下载和清空；启用“写入日志文件”后出现日志栏目。
-- **使用统计**: 概览卡片、小时/天切换、最多三条模型曲线、按 API 统计表（Chart.js）。
-- **配置管理**: 内置 CodeMirror YAML 编辑器，在线读取/保存 `/config.yaml`，语法高亮与状态提示。
-- **系统与版本**: 连接/配置缓存状态、最后刷新时间，底栏显示服务版本、构建时间与 UI 版本。
-- **安全与偏好**: 密钥遮蔽、加密本地存储，主题/语言/侧边栏状态持久化，实时状态反馈。
+- 本仓库只包含 Web 管理界面本身，通过 CLI Proxy API 的 **Management API**（`/v0/management`）读取/修改配置、上传凭据、查看日志与使用统计。
+- 它 **不是** 代理本体，不参与流量转发。
 
-## 使用方法
+## 快速开始
 
-1) **主程序启动后使用（推荐）**  
-   访问 `http://您的服务器:8317/management.html`。
+### 方式 A：使用 CLIProxyAPI 自带的 WebUI（推荐）
 
-2) **构建后直接静态打开**  
-   `npm run build` 生成的 `dist/index.html` 单文件
+1. 启动 CLI Proxy API 服务。
+2. 打开：`http://<host>:<api_port>/management.html`
+3. 输入 **管理密钥** 并连接。
 
-3) **本地服务器**
+页面会根据当前地址自动推断 API 地址，也支持手动修改。
+
+### 方式 B：开发调试
+
 ```bash
 npm install
-npm start        # 默认 http://localhost:3000
-npm run dev      # 可选开发端口 3090
-# 或
-python -m http.server 8000
+npm run dev
 ```
-   然后在浏览器打开对应的 localhost 地址。
 
-4) **配置连接**  
-   登录页会显示自动检测的地址，可自行修改，填入管理密钥后点击连接。凭据将加密保存以便下次自动登录。
+打开 `http://localhost:5173`，然后连接到你的 CLI Proxy API 实例。
 
-提示: 开启“写入日志文件”后才会显示“日志查看”导航。
+### 方式 C：构建单文件 HTML
 
-## 技术栈
-
-- **前端**: 纯 HTML、CSS、JavaScript (ES6+)
-- **样式**: CSS3 + Flexbox/Grid，支持 CSS 变量
-- **图标**: Font Awesome 6.4.0
-- **图表**: Chart.js 交互式数据可视化
-- **编辑/解析**: CodeMirror + js-yaml
-- **国际化**: 自定义 i18n（中/英）与主题系统（明/暗）
-- **API**: RESTful 管理接口，自动附加认证
-- **存储**: LocalStorage 轻量加密存储偏好与凭据
-
-## 构建与开发
-
-- `npm run build` 通过 webpack（`build.cjs`、`bundle-entry.js`、`build-scripts/prepare-html.js`）打包为 `dist/index.html`。
-- Font Awesome、Chart.js、CodeMirror 仍走 CDN，减小打包体积。
-- 开发可用 `npm start` (3000) / `npm run dev` (3090) 或 `python -m http.server` 静态托管。
-
-## 故障排除
-
-### 连接问题
-1. 确认 CLI Proxy API 服务正在运行
-2. 检查 API 地址是否正确
-3. 验证管理密钥是否有效
-4. 确认防火墙设置允许连接
-
-### 数据不更新
-1. 点击"刷新全部"按钮
-2. 检查网络连接
-3. 查看浏览器控制台错误信息
-
-### 日志与配置编辑
-- 日志: 需要服务端开启写文件日志；返回 404 说明版本过旧或未启用。
-- 配置编辑: 依赖 `/config.yaml` 接口，保存前请确保 YAML 语法正确。
-
-### 使用统计
-- 若图表为空，请开启“使用统计”；数据在服务重启后会清空。
-
-## 项目结构
+```bash
+npm install
+npm run build
 ```
-├── index.html
-├── styles.css
-├── app.js
-├── i18n.js
-├── src/                # 核心/模块/工具源码
-├── build.cjs           # Webpack 构建脚本
-├── bundle-entry.js     # 打包入口
-├── build-scripts/      # 构建工具
-│   └── prepare-html.js
-├── dist/               # 打包输出单文件
-├── BUILD_RELEASE.md
-├── LICENSE
-├── README.md
-└── README_CN.md
+
+- 构建产物：`dist/index.html`（资源已全部内联）。
+- 在 CLIProxyAPI 的发布流程里会重命名为 `management.html`。
+- 本地预览：`npm run preview`
+
+提示：直接用 `file://` 打开 `dist/index.html` 可能遇到浏览器 CORS 限制；更稳妥的方式是用预览/静态服务器打开。
+
+## 连接说明
+
+### API 地址怎么填
+
+以下格式均可，WebUI 会自动归一化：
+
+- `localhost:8317`
+- `http://192.168.1.10:8317`
+- `https://example.com:8317`
+- `http://example.com:8317/v0/management`（也可填写，后缀会被自动去除）
+
+### 管理密钥（注意：不是 API Keys）
+
+管理密钥会以如下方式随请求发送：
+
+- `Authorization: Bearer <MANAGEMENT_KEY>`（默认）
+
+这与 WebUI 中“API Keys”页面管理的 `api-keys` 不同：后者是代理对外接口（如 OpenAI 兼容接口）给客户端使用的鉴权 key。
+
+### 远程管理
+
+当你从非 localhost 的浏览器访问时，服务端通常需要开启远程管理（例如 `allow-remote-management: true`）。  
+完整鉴权规则、限制与边界情况请查看 `api.md`。
+
+## 功能一览（按页面对应）
+
+- **仪表盘**：连接状态、服务版本/构建时间、关键数量概览、可用模型概览。
+- **基础设置**：调试开关、代理 URL、请求重试、配额回退（切项目/切预览模型）、使用统计、请求日志、文件日志、WebSocket 鉴权。
+- **API Keys**：管理代理 `api-keys`（增/改/删）。
+- **AI 提供商**：
+  - Gemini/Codex/Claude 配置（Base URL、Headers、代理、模型别名、排除模型、Prefix）。
+  - OpenAI 兼容提供商（多 Key、Header、自助从 `/v1/models` 拉取并导入模型别名、可选浏览器侧 `chat/completions` 测试）。
+  - Ampcode 集成（上游地址/密钥、强制映射、模型映射表）。
+- **认证文件**：上传/下载/删除 JSON 凭据，筛选/搜索/分页，标记 runtime-only；查看单个凭据可用模型（依赖后端支持）；管理 OAuth 排除模型（支持 `*` 通配符）。
+- **OAuth**：对支持的提供商发起 OAuth/设备码流程，轮询状态；可选提交回调 `redirect_url`；包含 iFlow Cookie 导入。
+- **使用统计**：按小时/天图表、按 API 与按模型统计、缓存/推理 Token 拆分、RPM/TPM 时间窗、可选本地保存的模型价格用于费用估算。
+- **配置文件**：浏览器内编辑 `/config.yaml`（YAML 高亮 + 搜索），保存/重载。
+- **日志**：增量拉取日志、自动刷新、搜索、隐藏管理端流量、清空日志；下载请求错误日志文件。
+- **系统信息**：快捷链接 + 拉取 `/v1/models` 并分组展示（需要至少一个代理 API Key 才能查询模型）。
+
+## 构建与发布说明
+
+- 使用 Vite 输出 **单文件 HTML**（`dist/index.html`），资源全部内联（`vite-plugin-singlefile`）。
+- 打 `vX.Y.Z` 标签会触发 `.github/workflows/release.yml`，发布 `dist/management.html`。
+- 页脚显示的 UI 版本在构建期注入（优先使用环境变量 `VERSION`，否则使用 git tag / `package.json`）。
+
+## 安全提示
+
+- 管理密钥会存入浏览器 `localStorage`，并使用轻量混淆格式（`enc::v1::...`）避免明文；仍应视为敏感信息。
+- 建议使用独立浏览器配置/设备进行管理；开启远程管理时请谨慎评估暴露面。
+
+## 常见问题
+
+- **无法连接 / 401**：确认 API 地址与管理密钥；远程访问可能需要服务端开启远程管理。
+- **反复输错密钥**：服务端可能对远程 IP 进行临时封禁。
+- **日志页面不显示**：需要在“基础设置”里开启“写入日志文件”，导航项才会出现。
+- **功能提示不支持**：多为后端版本较旧或接口未启用/不存在（如：认证文件模型列表、排除模型、日志相关接口）。
+- **OpenAI 提供商测试失败**：测试在浏览器侧执行，会受网络与 CORS 影响；这里失败不一定代表服务端不可用。
+
+## 开发命令
+
+```bash
+npm run dev        # 启动开发服务器
+npm run build      # tsc + Vite 构建
+npm run preview    # 本地预览 dist
+npm run lint       # ESLint（warnings 视为失败）
+npm run format     # Prettier
+npm run type-check # tsc --noEmit
 ```
 
 ## 贡献
-欢迎提交 Issue 和 Pull Request 来改进这个项目！我们欢迎更多的大佬来对这个 WebUI 进行更新！
 
-本项目采用 MIT 许可。
+欢迎提 Issue 与 PR。建议附上：
+
+- 复现步骤（服务端版本 + UI 版本）
+- UI 改动截图
+- 验证记录（`npm run lint`、`npm run type-check`）
+
+## 许可证
+
+MIT
