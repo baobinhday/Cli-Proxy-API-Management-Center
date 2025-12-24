@@ -998,37 +998,65 @@ export const authFilesModule = {
 
     // 处理文件上传
     async handleFileUpload(event) {
-        const file = event.target.files[0];
-        if (!file) return;
+        const input = event?.target;
+        const files = Array.from(input?.files || []);
+        if (input) {
+            input.value = '';
+        }
+        if (!files.length) return;
 
-        if (!file.name.endsWith('.json')) {
+        const validFiles = [];
+        const invalidFiles = [];
+        files.forEach(file => {
+            if (file && file.name.endsWith('.json')) {
+                validFiles.push(file);
+            } else if (file) {
+                invalidFiles.push(file.name);
+            }
+        });
+
+        if (invalidFiles.length) {
             this.showNotification(i18n.t('auth_files.upload_error_json'), 'error');
-            event.target.value = '';
-            return;
+        }
+        if (!validFiles.length) return;
+
+        let successCount = 0;
+        const failed = [];
+
+        for (const file of validFiles) {
+            try {
+                await this.uploadSingleAuthFile(file);
+                successCount++;
+            } catch (error) {
+                failed.push({ name: file.name, message: error.message });
+            }
         }
 
-        try {
-            const formData = new FormData();
-            formData.append('file', file, file.name);
-
-            const response = await this.apiClient.requestRaw('/auth-files', {
-                method: 'POST',
-                body: formData
-            });
-
-            if (!response.ok) {
-                const errorData = await response.json().catch(() => ({}));
-                throw new Error(errorData.error || `HTTP ${response.status}`);
-            }
-
-            this.clearCache(); // 清除缓存
+        if (successCount > 0) {
+            this.clearCache();
             await this.loadAuthFiles();
-            this.showNotification(i18n.t('auth_files.upload_success'), 'success');
-        } catch (error) {
-            this.showNotification(`${i18n.t('notification.upload_failed')}: ${error.message}`, 'error');
-        } finally {
-            // 清空文件输入框,允许重复上传同一文件
-            event.target.value = '';
+            const suffix = validFiles.length > 1 ? ` (${successCount}/${validFiles.length})` : '';
+            this.showNotification(`${i18n.t('auth_files.upload_success')}${suffix}`, failed.length ? 'warning' : 'success');
+        }
+
+        if (failed.length) {
+            const details = failed.map(item => `${item.name}: ${item.message}`).join('; ');
+            this.showNotification(`${i18n.t('notification.upload_failed')}: ${details}`, 'error');
+        }
+    },
+
+    async uploadSingleAuthFile(file) {
+        const formData = new FormData();
+        formData.append('file', file, file.name);
+
+        const response = await this.apiClient.requestRaw('/auth-files', {
+            method: 'POST',
+            body: formData
+        });
+
+        if (!response.ok) {
+            const errorData = await response.json().catch(() => ({}));
+            throw new Error(errorData.error || `HTTP ${response.status}`);
         }
     },
 
@@ -1047,6 +1075,50 @@ export const authFilesModule = {
             normalized[key.toLowerCase()] = list;
         });
         return normalized;
+    },
+
+    resolveOauthExcludedFromConfig(config = null) {
+        const sources = [];
+        if (config && typeof config === 'object') {
+            sources.push(config);
+        }
+        if (this.configCache && typeof this.configCache === 'object') {
+            if (this.configCache['oauth-excluded-models'] !== undefined) {
+                sources.push({ 'oauth-excluded-models': this.configCache['oauth-excluded-models'] });
+            }
+            if (this.configCache['__full__']) {
+                sources.push(this.configCache['__full__']);
+            }
+        }
+
+        for (const source of sources) {
+            if (!source || typeof source !== 'object') continue;
+            if (Object.prototype.hasOwnProperty.call(source, 'oauth-excluded-models')) {
+                return {
+                    map: this.normalizeOauthExcludedMap(source),
+                    found: true
+                };
+            }
+        }
+
+        return { map: {}, found: false };
+    },
+
+    applyOauthExcludedFromConfig(config = null, options = {}) {
+        const { render = true } = options || {};
+        const { map, found } = this.resolveOauthExcludedFromConfig(config);
+        if (!found) {
+            return false;
+        }
+
+        this.oauthExcludedModels = map;
+        this._oauthExcludedLoading = false;
+        this.setOauthExcludedStatus('');
+        this.updateOauthExcludedButtonsState(false);
+        if (render) {
+            this.renderOauthExcludedModels();
+        }
+        return true;
     },
 
     getFilteredOauthExcludedMap(filterType = this.currentAuthFileFilter) {
@@ -1407,9 +1479,36 @@ export const authFilesModule = {
         this.renderOauthExcludedModels();
 
         try {
-            const data = await this.makeRequest('/oauth-excluded-models');
-            this.oauthExcludedModels = this.normalizeOauthExcludedMap(data);
-            this.refreshOauthProviderOptions();
+            let targetMap = {};
+            let hasData = false;
+
+            if (!forceRefresh) {
+                const { map, found } = this.resolveOauthExcludedFromConfig();
+                if (found) {
+                    targetMap = map;
+                    hasData = true;
+                }
+            }
+
+            if (!hasData) {
+                try {
+                    const configSection = await this.getConfig('oauth-excluded-models', forceRefresh);
+                    if (configSection !== undefined) {
+                        targetMap = this.normalizeOauthExcludedMap(configSection);
+                        hasData = true;
+                    }
+                } catch (configError) {
+                    console.warn('从配置获取 OAuth 排除列表失败，尝试回退接口:', configError);
+                }
+            }
+
+            if (!hasData) {
+                const data = await this.makeRequest('/oauth-excluded-models');
+                targetMap = this.normalizeOauthExcludedMap(data);
+                hasData = true;
+            }
+
+            this.oauthExcludedModels = targetMap;
             this.setOauthExcludedStatus('');
         } catch (error) {
             console.error('加载 OAuth 排除列表失败:', error);
@@ -1501,6 +1600,7 @@ export const authFilesModule = {
         }
         this.events.on('data:config-loaded', async (event) => {
             const detail = event?.detail || {};
+            const config = detail.config || {};
             const keyStats = detail.keyStats || null;
             try {
                 await this.loadAuthFiles(keyStats);
@@ -1508,7 +1608,10 @@ export const authFilesModule = {
                 console.error('加载认证文件失败:', error);
             }
             try {
-                await this.loadOauthExcludedModels(true);
+                const applied = this.applyOauthExcludedFromConfig(config, { render: true });
+                if (!applied) {
+                    await this.loadOauthExcludedModels(true);
+                }
             } catch (error) {
                 console.error('加载 OAuth 排除列表失败:', error);
             }
@@ -1518,7 +1621,9 @@ export const authFilesModule = {
             const detail = event?.detail || {};
             this.updateOauthExcludedButtonsState(false);
             if (detail.isConnected) {
-                this.loadOauthExcludedModels(true);
+                if (!this.applyOauthExcludedFromConfig(null, { render: true })) {
+                    this.renderOauthExcludedModels();
+                }
             } else {
                 this.renderOauthExcludedModels();
             }

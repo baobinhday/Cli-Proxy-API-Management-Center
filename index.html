@@ -5,6 +5,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title data-i18n="title.login">CLI Proxy API Management Center</title>
+    <link rel="icon" type="image/x-icon" id="favicon-link">
     <link rel="stylesheet" href="styles.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.css">
@@ -126,7 +127,12 @@
                 </button>
                 <div class="top-navbar-brand">
                     <img id="site-logo" class="top-navbar-brand-logo" alt="Logo" style="display:none" />
-                    <span class="top-navbar-brand-text" data-i18n="title.main">CLI Proxy API Management Center</span>
+                    <button class="top-navbar-brand-toggle expanded" id="brand-name-toggle" type="button" aria-label="展开标题">
+                        <span class="brand-texts" id="brand-texts">
+                            <span class="top-navbar-brand-text brand-text brand-text-full" data-i18n="title.main">CLI Proxy API Management Center</span>
+                            <span class="top-navbar-brand-text brand-text brand-text-short" data-i18n="title.abbr">CPAMC</span>
+                        </span>
+                    </button>
                 </div>
             </div>
             <div class="top-navbar-actions">
@@ -182,7 +188,7 @@
                             <i class="fas fa-scroll"></i> <span data-i18n="nav.logs">日志查看</span>
                         </a></li>
                     <li data-i18n-tooltip="nav.system_info"><a href="#system-info" class="nav-item" data-section="system-info">
-                            <i class="fas fa-info-circle"></i> <span data-i18n="nav.system_info">系统信息</span>
+                            <i class="fas fa-info-circle"></i> <span data-i18n="nav.system_info">中心信息</span>
                         </a></li>
                 </ul>
             </nav>
@@ -579,7 +585,7 @@
                                             <i class="fas fa-chevron-right"></i>
                                         </button>
                                     </div>
-                                    <input type="file" id="auth-file-input" accept=".json" style="display: none;">
+                                    <input type="file" id="auth-file-input" accept=".json" multiple style="display: none;">
                                 </div>
                             </div>
 
@@ -865,27 +871,33 @@
                             <h2 data-i18n="logs.title">日志查看</h2>
 
                             <div class="card">
-                                <div class="card-header">
-                                    <h3><i class="fas fa-scroll"></i> <span data-i18n="logs.log_content">日志内容</span></h3>
+                                <div class="card-header logs-header">
+                                    <div class="logs-header-main">
+                                        <h3><i class="fas fa-scroll"></i> <span data-i18n="logs.log_content">日志内容</span></h3>
+                                        <div class="logs-search">
+                                            <i class="fas fa-search"></i>
+                                            <input type="text" id="logs-search-input" aria-label="搜索日志" data-i18n-placeholder="logs.search_placeholder" placeholder="搜索日志...">
+                                        </div>
+                                    </div>
                                     <div class="header-actions">
                                         <div class="toggle-group" style="margin-right: 15px;">
                                             <label class="toggle-switch" style="margin-right: 5px;">
                                                 <input type="checkbox" id="logs-auto-refresh-toggle">
                                                 <span class="slider"></span>
                                             </label>
-                                        <span class="toggle-label" data-i18n="logs.auto_refresh" style="font-size: 0.9em;">自动刷新</span>
-                                    </div>
-                                    <button id="refresh-logs" class="btn btn-primary">
-                                        <i class="fas fa-sync-alt"></i> <span data-i18n="logs.refresh_button">刷新日志</span>
-                                    </button>
-                                    <button id="select-error-log" class="btn btn-secondary">
-                                        <i class="fas fa-file-circle-exclamation"></i> <span data-i18n="logs.error_log_button">选择错误日志</span>
-                                    </button>
-                                    <button id="download-logs" class="btn btn-secondary">
-                                        <i class="fas fa-download"></i> <span data-i18n="logs.download_button">下载日志</span>
-                                    </button>
-                                    <button id="clear-logs" class="btn btn-danger">
-                                        <i class="fas fa-trash"></i> <span data-i18n="logs.clear_button">清空日志</span>
+                                            <span class="toggle-label" data-i18n="logs.auto_refresh" style="font-size: 0.9em;">自动刷新</span>
+                                        </div>
+                                        <button id="refresh-logs" class="btn btn-primary">
+                                            <i class="fas fa-sync-alt"></i> <span data-i18n="logs.refresh_button">刷新日志</span>
+                                        </button>
+                                        <button id="select-error-log" class="btn btn-secondary">
+                                            <i class="fas fa-file-circle-exclamation"></i> <span data-i18n="logs.error_log_button">选择错误日志</span>
+                                        </button>
+                                        <button id="download-logs" class="btn btn-secondary">
+                                            <i class="fas fa-download"></i> <span data-i18n="logs.download_button">下载日志</span>
+                                        </button>
+                                        <button id="clear-logs" class="btn btn-danger">
+                                            <i class="fas fa-trash"></i> <span data-i18n="logs.clear_button">清空日志</span>
                                         </button>
                                     </div>
                                 </div>
@@ -895,6 +907,7 @@
                                     </div>
                                 </div>
                             </div>
+
                         </section>
 
                         <!-- 使用统计 -->
@@ -904,104 +917,215 @@
                             <!-- 概览统计卡片 -->
                             <div class="stats-overview">
                                 <div class="stat-card">
-                                    <div class="stat-icon">
-                                        <i class="fas fa-paper-plane"></i>
-                                    </div>
-                                    <div class="stat-content">
-                                        <div class="stat-number" id="total-requests">0</div>
-                                        <div class="stat-label" data-i18n="usage_stats.total_requests">总请求数</div>
-                                    </div>
-                                </div>
-
-                                <div class="stat-card">
-                                    <div class="stat-icon success">
-                                        <i class="fas fa-check-circle"></i>
-                                    </div>
-                                    <div class="stat-content">
-                                        <div class="stat-number" id="success-requests">0</div>
-                                        <div class="stat-label" data-i18n="usage_stats.success_requests">成功请求</div>
-                                    </div>
-                                </div>
-
-                                <div class="stat-card">
-                                    <div class="stat-icon error">
-                                        <i class="fas fa-exclamation-circle"></i>
-                                    </div>
-                                    <div class="stat-content">
-                                        <div class="stat-number" id="failed-requests">0</div>
-                                        <div class="stat-label" data-i18n="usage_stats.failed_requests">失败请求</div>
-                                    </div>
-                                </div>
-
-                                <div class="stat-card">
-                                    <div class="stat-icon">
-                                        <i class="fas fa-coins"></i>
-                                    </div>
-                                    <div class="stat-content">
-                                        <div class="stat-number" id="total-tokens">0</div>
-                                        <div class="stat-label" data-i18n="usage_stats.total_tokens">总Token数</div>
-                                        <div class="stat-subtext">
-                                            <span data-i18n="usage_stats.cached_tokens">缓存 Token 数</span>:
-                                            <span id="cached-tokens">0</span>
+                                    <div class="stat-card-header">
+                                        <div class="stat-meta">
+                                            <div class="stat-label" data-i18n="usage_stats.total_requests">总请求数</div>
+                                            <div class="stat-number" id="total-requests">0</div>
+                                            <div class="stat-subtext stat-subtext-inline">
+                                                <span><span data-i18n="usage_stats.success_requests">成功请求</span> <span id="success-requests">0</span></span>
+                                                <span class="dot-divider">•</span>
+                                                <span><span data-i18n="usage_stats.failed_requests">失败请求</span> <span id="failed-requests">0</span></span>
+                                            </div>
                                         </div>
-                                        <div class="stat-subtext">
-                                            <span data-i18n="usage_stats.reasoning_tokens">思考 Token 数</span>:
-                                            <span id="reasoning-tokens">0</span>
+                                        <div class="stat-icon">
+                                            <i class="fas fa-paper-plane"></i>
                                         </div>
                                     </div>
-                                </div>
-
-                                <div class="stat-card">
-                                    <div class="stat-icon">
-                                        <i class="fas fa-gauge-high"></i>
-                                    </div>
-                                    <div class="stat-content">
-                                        <div class="stat-number" id="rpm-30m">0</div>
-                                        <div class="stat-label" data-i18n="usage_stats.rpm_30m">RPM（近30分钟）</div>
+                                    <div class="stat-sparkline" aria-label="30分钟请求趋势">
+                                        <canvas id="requests-sparkline"></canvas>
                                     </div>
                                 </div>
 
                                 <div class="stat-card">
-                                    <div class="stat-icon">
-                                        <i class="fas fa-stopwatch"></i>
+                                    <div class="stat-card-header">
+                                        <div class="stat-meta">
+                                            <div class="stat-label" data-i18n="usage_stats.total_tokens">总Token数</div>
+                                            <div class="stat-number" id="total-tokens">0</div>
+                                            <div class="stat-subtext">
+                                                <span data-i18n="usage_stats.cached_tokens">缓存 Token 数</span>:
+                                                <span id="cached-tokens">0</span>
+                                            </div>
+                                            <div class="stat-subtext">
+                                                <span data-i18n="usage_stats.reasoning_tokens">思考 Token 数</span>:
+                                                <span id="reasoning-tokens">0</span>
+                                            </div>
+                                        </div>
+                                        <div class="stat-icon">
+                                            <i class="fas fa-coins"></i>
+                                        </div>
                                     </div>
-                                    <div class="stat-content">
-                                        <div class="stat-number" id="tpm-30m">0</div>
-                                        <div class="stat-label" data-i18n="usage_stats.tpm_30m">TPM（近30分钟）</div>
+                                    <div class="stat-sparkline" aria-label="30分钟Token趋势">
+                                        <canvas id="tokens-sparkline"></canvas>
+                                    </div>
+                                </div>
+
+                                <div class="stat-card">
+                                    <div class="stat-card-header">
+                                        <div class="stat-meta">
+                                            <div class="stat-label" data-i18n="usage_stats.rpm_30m">RPM（近30分钟）</div>
+                                            <div class="stat-number" id="rpm-30m">0</div>
+                                        </div>
+                                        <div class="stat-icon">
+                                            <i class="fas fa-gauge-high"></i>
+                                        </div>
+                                    </div>
+                                    <div class="stat-sparkline" aria-label="30分钟RPM趋势">
+                                        <canvas id="rpm-sparkline"></canvas>
+                                    </div>
+                                </div>
+
+                                <div class="stat-card">
+                                    <div class="stat-card-header">
+                                        <div class="stat-meta">
+                                            <div class="stat-label" data-i18n="usage_stats.tpm_30m">TPM（近30分钟）</div>
+                                            <div class="stat-number" id="tpm-30m">0</div>
+                                        </div>
+                                        <div class="stat-icon">
+                                            <i class="fas fa-stopwatch"></i>
+                                        </div>
+                                    </div>
+                                    <div class="stat-sparkline" aria-label="30分钟TPM趋势">
+                                        <canvas id="tpm-sparkline"></canvas>
                                     </div>
                                 </div>
 
                                 <div class="stat-card cost-summary-card">
-                                    <div class="stat-icon">
-                                        <i class="fas fa-dollar-sign"></i>
+                                    <div class="stat-card-header">
+                                        <div class="stat-meta">
+                                            <div class="stat-label" data-i18n="usage_stats.total_cost">总花费</div>
+                                            <div class="stat-number" id="total-cost">--</div>
+                                            <div class="stat-subtext" id="total-cost-hint" data-i18n="usage_stats.total_cost_hint">基于已设置的模型单价</div>
+                                        </div>
+                                        <div class="stat-icon">
+                                            <i class="fas fa-dollar-sign"></i>
+                                        </div>
                                     </div>
-                                    <div class="stat-content">
-                                        <div class="stat-number" id="total-cost">--</div>
-                                        <div class="stat-label" data-i18n="usage_stats.total_cost">总花费</div>
-                                        <div class="stat-subtext" id="total-cost-hint" data-i18n="usage_stats.total_cost_hint">基于已设置的模型单价</div>
+                                    <div class="stat-sparkline" aria-label="30分钟花费趋势">
+                                        <canvas id="cost-sparkline"></canvas>
                                     </div>
                                 </div>
                             </div>
 
                             <!-- 图表曲线选择 -->
-                            <div class="usage-filter-bar">
-                                <div class="usage-filter-group">
+                            <div class="usage-filter-bar" id="chart-line-bar">
+                                <div class="usage-filter-group usage-filter-actions">
+                                    <label data-i18n="usage_stats.chart_line_actions_label">曲线数量</label>
+                                    <div class="chart-line-actions">
+                                        <button type="button" class="btn btn-small" id="add-chart-line">
+                                            <i class="fas fa-plus"></i>
+                                            <span data-i18n="usage_stats.chart_line_add">增加曲线</span>
+                                        </button>
+                                        <span class="chart-line-count" id="chart-line-count">3/9</span>
+                                    </div>
+                                    <div class="chart-line-hint" data-i18n="usage_stats.chart_line_hint">最多显示 9 条模型曲线</div>
+                                </div>
+                                <div class="usage-filter-group chart-line-group" data-line-index="0">
                                     <label for="chart-line-select-0" data-i18n="usage_stats.chart_line_label_1">曲线 1</label>
-                                    <select id="chart-line-select-0" class="model-filter-select chart-line-select" data-line-index="0" disabled>
-                                        <option value="none" data-i18n="usage_stats.chart_line_hidden">不显示</option>
-                                    </select>
+                                    <div class="chart-line-control">
+                                        <select id="chart-line-select-0" class="model-filter-select chart-line-select" data-line-index="0" disabled>
+                                            <option value="all" data-i18n="usage_stats.chart_line_all">全部</option>
+                                        </select>
+                                        <button type="button" class="btn btn-small btn-danger chart-line-delete" data-line-index="0">
+                                            <i class="fas fa-trash"></i>
+                                            <span data-i18n="usage_stats.chart_line_delete">删除</span>
+                                        </button>
+                                    </div>
                                 </div>
-                                <div class="usage-filter-group">
+                                <div class="usage-filter-group chart-line-group" data-line-index="1">
                                     <label for="chart-line-select-1" data-i18n="usage_stats.chart_line_label_2">曲线 2</label>
-                                    <select id="chart-line-select-1" class="model-filter-select chart-line-select" data-line-index="1" disabled>
-                                        <option value="none" data-i18n="usage_stats.chart_line_hidden">不显示</option>
-                                    </select>
+                                    <div class="chart-line-control">
+                                        <select id="chart-line-select-1" class="model-filter-select chart-line-select" data-line-index="1" disabled>
+                                            <option value="all" data-i18n="usage_stats.chart_line_all">全部</option>
+                                        </select>
+                                        <button type="button" class="btn btn-small btn-danger chart-line-delete" data-line-index="1">
+                                            <i class="fas fa-trash"></i>
+                                            <span data-i18n="usage_stats.chart_line_delete">删除</span>
+                                        </button>
+                                    </div>
                                 </div>
-                                <div class="usage-filter-group">
+                                <div class="usage-filter-group chart-line-group" data-line-index="2">
                                     <label for="chart-line-select-2" data-i18n="usage_stats.chart_line_label_3">曲线 3</label>
-                                    <select id="chart-line-select-2" class="model-filter-select chart-line-select" data-line-index="2" disabled>
-                                        <option value="none" data-i18n="usage_stats.chart_line_hidden">不显示</option>
-                                    </select>
+                                    <div class="chart-line-control">
+                                        <select id="chart-line-select-2" class="model-filter-select chart-line-select" data-line-index="2" disabled>
+                                            <option value="all" data-i18n="usage_stats.chart_line_all">全部</option>
+                                        </select>
+                                        <button type="button" class="btn btn-small btn-danger chart-line-delete" data-line-index="2">
+                                            <i class="fas fa-trash"></i>
+                                            <span data-i18n="usage_stats.chart_line_delete">删除</span>
+                                        </button>
+                                    </div>
+                                </div>
+                                <div class="usage-filter-group chart-line-group chart-line-hidden" data-line-index="3">
+                                    <label for="chart-line-select-3" data-i18n="usage_stats.chart_line_label_4">曲线 4</label>
+                                    <div class="chart-line-control">
+                                        <select id="chart-line-select-3" class="model-filter-select chart-line-select" data-line-index="3" disabled>
+                                            <option value="all" data-i18n="usage_stats.chart_line_all">全部</option>
+                                        </select>
+                                        <button type="button" class="btn btn-small btn-danger chart-line-delete" data-line-index="3">
+                                            <i class="fas fa-trash"></i>
+                                            <span data-i18n="usage_stats.chart_line_delete">删除</span>
+                                        </button>
+                                    </div>
+                                </div>
+                                <div class="usage-filter-group chart-line-group chart-line-hidden" data-line-index="4">
+                                    <label for="chart-line-select-4" data-i18n="usage_stats.chart_line_label_5">曲线 5</label>
+                                    <div class="chart-line-control">
+                                        <select id="chart-line-select-4" class="model-filter-select chart-line-select" data-line-index="4" disabled>
+                                            <option value="all" data-i18n="usage_stats.chart_line_all">全部</option>
+                                        </select>
+                                        <button type="button" class="btn btn-small btn-danger chart-line-delete" data-line-index="4">
+                                            <i class="fas fa-trash"></i>
+                                            <span data-i18n="usage_stats.chart_line_delete">删除</span>
+                                        </button>
+                                    </div>
+                                </div>
+                                <div class="usage-filter-group chart-line-group chart-line-hidden" data-line-index="5">
+                                    <label for="chart-line-select-5" data-i18n="usage_stats.chart_line_label_6">曲线 6</label>
+                                    <div class="chart-line-control">
+                                        <select id="chart-line-select-5" class="model-filter-select chart-line-select" data-line-index="5" disabled>
+                                            <option value="all" data-i18n="usage_stats.chart_line_all">全部</option>
+                                        </select>
+                                        <button type="button" class="btn btn-small btn-danger chart-line-delete" data-line-index="5">
+                                            <i class="fas fa-trash"></i>
+                                            <span data-i18n="usage_stats.chart_line_delete">删除</span>
+                                        </button>
+                                    </div>
+                                </div>
+                                <div class="usage-filter-group chart-line-group chart-line-hidden" data-line-index="6">
+                                    <label for="chart-line-select-6" data-i18n="usage_stats.chart_line_label_7">曲线 7</label>
+                                    <div class="chart-line-control">
+                                        <select id="chart-line-select-6" class="model-filter-select chart-line-select" data-line-index="6" disabled>
+                                            <option value="all" data-i18n="usage_stats.chart_line_all">全部</option>
+                                        </select>
+                                        <button type="button" class="btn btn-small btn-danger chart-line-delete" data-line-index="6">
+                                            <i class="fas fa-trash"></i>
+                                            <span data-i18n="usage_stats.chart_line_delete">删除</span>
+                                        </button>
+                                    </div>
+                                </div>
+                                <div class="usage-filter-group chart-line-group chart-line-hidden" data-line-index="7">
+                                    <label for="chart-line-select-7" data-i18n="usage_stats.chart_line_label_8">曲线 8</label>
+                                    <div class="chart-line-control">
+                                        <select id="chart-line-select-7" class="model-filter-select chart-line-select" data-line-index="7" disabled>
+                                            <option value="all" data-i18n="usage_stats.chart_line_all">全部</option>
+                                        </select>
+                                        <button type="button" class="btn btn-small btn-danger chart-line-delete" data-line-index="7">
+                                            <i class="fas fa-trash"></i>
+                                            <span data-i18n="usage_stats.chart_line_delete">删除</span>
+                                        </button>
+                                    </div>
+                                </div>
+                                <div class="usage-filter-group chart-line-group chart-line-hidden" data-line-index="8">
+                                    <label for="chart-line-select-8" data-i18n="usage_stats.chart_line_label_9">曲线 9</label>
+                                    <div class="chart-line-control">
+                                        <select id="chart-line-select-8" class="model-filter-select chart-line-select" data-line-index="8" disabled>
+                                            <option value="all" data-i18n="usage_stats.chart_line_all">全部</option>
+                                        </select>
+                                        <button type="button" class="btn btn-small btn-danger chart-line-delete" data-line-index="8">
+                                            <i class="fas fa-trash"></i>
+                                            <span data-i18n="usage_stats.chart_line_delete">删除</span>
+                                        </button>
+                                    </div>
                                 </div>
                             </div>
 
@@ -1154,9 +1278,23 @@
                             </div>
                         </section>
 
-                        <!-- 系统信息 -->
+                        <!-- 管理中心信息 -->
                         <section id="system-info" class="content-section">
-                            <h2 data-i18n="system_info.title">系统信息</h2>
+                            <h2 data-i18n="system_info.title">管理中心信息</h2>
+
+                            <div class="card">
+                                <div class="card-header">
+                                    <h3><i class="fas fa-layer-group"></i> <span data-i18n="system_info.models_title">可用模型列表</span></h3>
+                                    <button type="button" id="available-models-refresh" class="btn btn-secondary">
+                                        <i class="fas fa-sync-alt"></i> <span data-i18n="common.refresh">刷新</span>
+                                    </button>
+                                </div>
+                                <div class="card-content">
+                                    <p class="form-hint" data-i18n="system_info.models_desc">展示当前服务返回的 /v1/models 列表（使用服务器保存的 API Key 自动鉴权）。</p>
+                                    <div id="available-models-status" class="available-models-status" data-i18n="common.loading">加载中...</div>
+                                    <div id="available-models-list" class="available-models-list"></div>
+                                </div>
+                            </div>
 
                             <!-- 连接信息卡片 -->
                             <div class="card">
@@ -1211,6 +1349,31 @@
                                                 data-i18n="system_info.last_update_label">最后更新:</span>
                                             <span id="last-update" class="status-value">-</span>
                                         </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="card">
+                                <div class="card-header">
+                                    <h3><i class="fas fa-arrows-rotate"></i> <span data-i18n="system_info.version_check_title">版本检查</span></h3>
+                                </div>
+                                <div class="card-content version-check">
+                                    <p class="form-hint" data-i18n="system_info.version_check_desc">调用 /latest-version 接口比对服务器版本，提示是否有可用更新。</p>
+                                    <div class="version-check-rows">
+                                        <div class="version-check-row">
+                                            <span class="status-label" data-i18n="system_info.version_current_label">当前版本</span>
+                                            <span id="version-check-current" class="version-check-value">-</span>
+                                        </div>
+                                        <div class="version-check-row">
+                                            <span class="status-label" data-i18n="system_info.version_latest_label">最新版本</span>
+                                            <span id="version-check-latest" class="version-check-value">-</span>
+                                        </div>
+                                    </div>
+                                    <div class="version-check-actions">
+                                        <button type="button" id="version-check-btn" class="btn btn-primary">
+                                            <i class="fas fa-search"></i> <span data-i18n="system_info.version_check_button">检查更新</span>
+                                        </button>
+                                        <span id="version-check-result" class="version-check-result" data-i18n="system_info.version_check_idle">点击检查更新</span>
                                     </div>
                                 </div>
                             </div>

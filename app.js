@@ -56,6 +56,9 @@ class CLIProxyManager {
         this.uiVersion = null;
         this.serverVersion = null;
         this.serverBuildDate = null;
+        this.latestVersion = null;
+        this.versionCheckStatus = 'muted';
+        this.versionCheckMessage = i18n.t('system_info.version_check_idle');
 
         // 配置缓存 - 改为分段缓存（交由 ConfigService 管理）
         this.cacheExpiry = CACHE_EXPIRY_MS;
@@ -65,6 +68,9 @@ class CLIProxyManager {
         });
         this.configCache = this.configService.cache;
         this.cacheTimestamps = this.configService.cacheTimestamps;
+        this.availableModels = [];
+        this.availableModelApiKeysCache = null;
+        this.availableModelsLoading = false;
 
         // 状态更新定时器
         this.statusUpdateTimer = null;
@@ -77,7 +83,9 @@ class CLIProxyManager {
         this.logsRefreshTimer = null;
 
         // 当前展示的日志行
+        this.allLogLines = [];
         this.displayedLogLines = [];
+        this.logSearchQuery = '';
         this.maxDisplayLogLines = MAX_LOG_LINES;
         this.logFetchLimit = LOG_FETCH_LIMIT;
 
@@ -107,6 +115,20 @@ class CLIProxyManager {
             loading: false,
             result: null
         };
+
+        // 顶栏标题动画状态
+        this.brandCollapseTimer = null;
+        this.brandCollapseDelayMs = 5000;
+        this.brandIsCollapsed = false;
+        this.brandAnimationReady = false;
+        this.brandElements = {
+            toggle: null,
+            wrapper: null,
+            fullText: null,
+            shortText: null
+        };
+        this.brandResizeHandler = null;
+        this.brandToggleHandler = null;
 
         // 主题管理
         this.currentTheme = 'light';
@@ -207,13 +229,25 @@ class CLIProxyManager {
         }
     }
 
+    isLocalHostname(hostname = (typeof window !== 'undefined' ? window.location.hostname : '')) {
+        const host = (hostname || '').toLowerCase();
+        return host === 'localhost' || host === '127.0.0.1' || host === '::1';
+    }
+
+    isIflowOAuthAllowed(hostname = (typeof window !== 'undefined' ? window.location.hostname : '')) {
+        const host = (hostname || '').toLowerCase();
+        // iFlow OAuth 仅允许在本机回环地址访问
+        return host === '127.0.0.1' || host === 'localhost' || host === '::1';
+    }
+
     // 检查主机名并隐藏 OAuth 登录框
     checkHostAndHideOAuth() {
         const hostname = window.location.hostname;
-        const isLocalhost = hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1';
+        const isLocalhost = this.isLocalHostname(hostname);
+        const isIflowOAuthAllowed = this.isIflowOAuthAllowed(hostname);
 
         if (!isLocalhost) {
-            // 隐藏所有 OAuth 登录卡片
+            // 隐藏所有 OAuth 登录卡片(除了 iFlow, 因为它有 Cookie 登录功能可远程使用)
             OAUTH_CARD_IDS.forEach(cardId => {
                 const card = document.getElementById(cardId);
                 if (card) {
@@ -225,17 +259,44 @@ class CLIProxyManager {
             const oauthCardElements = document.querySelectorAll('.card');
             oauthCardElements.forEach(card => {
                 const cardText = card.textContent || '';
+                // 不再隐藏包含 'iFlow' 的卡片
                 if (cardText.includes('Codex OAuth') ||
                     cardText.includes('Anthropic OAuth') ||
                     cardText.includes('Antigravity OAuth') ||
                     cardText.includes('Gemini CLI OAuth') ||
-                    cardText.includes('Qwen OAuth') ||
-                    cardText.includes('iFlow OAuth')) {
+                    cardText.includes('Qwen OAuth')) {
                     card.style.display = 'none';
                 }
             });
 
-            console.log(`当前主机名: ${hostname}，已隐藏 OAuth 登录框`);
+            console.log(`当前主机名: ${hostname}，已隐藏 OAuth 登录框(保留 iFlow Cookie 登录)`);
+        }
+
+        if (!isIflowOAuthAllowed) {
+            // 对于 iFlow card, 仅在本机允许 OAuth，其余情况只保留 Cookie 登录
+            const iflowCard = document.getElementById('iflow-oauth-card');
+            if (iflowCard) {
+                const oauthContent = document.getElementById('iflow-oauth-content');
+                const oauthButton = document.getElementById('iflow-oauth-btn');
+                const oauthStatus = document.getElementById('iflow-oauth-status');
+                const oauthUrlGroup = document.getElementById('iflow-oauth-url')?.closest('.form-group');
+                const oauthHint = iflowCard.querySelector('[data-i18n="auth_login.iflow_oauth_hint"]');
+
+                if (oauthContent) oauthContent.style.display = 'none';
+                if (oauthButton) oauthButton.style.display = 'none';
+                if (oauthStatus) {
+                    oauthStatus.textContent = i18n.t('auth_login.iflow_oauth_local_only');
+                    oauthStatus.style.display = 'block';
+                    oauthStatus.style.color = 'var(--warning-text)';
+                }
+                if (oauthUrlGroup) oauthUrlGroup.style.display = 'none';
+                if (oauthHint) oauthHint.style.display = 'none';
+
+                // 保持整个 card 可见, 因为 Cookie 登录部分仍然可用
+                iflowCard.style.display = 'block';
+            }
+
+            console.log(`当前主机名: ${hostname}，iFlow OAuth 已限制为本机访问，仅保留 Cookie 登录`);
         }
     }
 
@@ -274,12 +335,20 @@ class CLIProxyManager {
         // 连接状态检查
         const connectionStatus = document.getElementById('connection-status');
         const refreshAll = document.getElementById('refresh-all');
+        const availableModelsRefresh = document.getElementById('available-models-refresh');
+        const versionCheckBtn = document.getElementById('version-check-btn');
 
         if (connectionStatus) {
             connectionStatus.addEventListener('click', () => this.checkConnectionStatus());
         }
         if (refreshAll) {
             refreshAll.addEventListener('click', () => this.refreshAllData());
+        }
+        if (availableModelsRefresh) {
+            availableModelsRefresh.addEventListener('click', () => this.loadAvailableModels({ forceRefresh: true }));
+        }
+        if (versionCheckBtn) {
+            versionCheckBtn.addEventListener('click', () => this.checkLatestVersion());
         }
 
         // 基础设置
@@ -333,6 +402,7 @@ class CLIProxyManager {
         const downloadLogs = document.getElementById('download-logs');
         const clearLogs = document.getElementById('clear-logs');
         const logsAutoRefreshToggle = document.getElementById('logs-auto-refresh-toggle');
+        const logsSearchInput = document.getElementById('logs-search-input');
 
         if (refreshLogs) {
             refreshLogs.addEventListener('click', () => this.refreshLogs());
@@ -348,6 +418,14 @@ class CLIProxyManager {
         }
         if (logsAutoRefreshToggle) {
             logsAutoRefreshToggle.addEventListener('change', (e) => this.toggleLogsAutoRefresh(e.target.checked));
+        }
+        if (logsSearchInput) {
+            const debouncedLogSearch = this.debounce((value) => {
+                this.updateLogSearchQuery(value);
+            }, 200);
+            logsSearchInput.addEventListener('input', (e) => {
+                debouncedLogSearch(e?.target?.value ?? '');
+            });
         }
 
         // API 密钥管理
@@ -524,7 +602,9 @@ class CLIProxyManager {
         const tokensDayBtn = document.getElementById('tokens-day-btn');
         const costHourBtn = document.getElementById('cost-hour-btn');
         const costDayBtn = document.getElementById('cost-day-btn');
+        const addChartLineBtn = document.getElementById('add-chart-line');
         const chartLineSelects = document.querySelectorAll('.chart-line-select');
+        const chartLineDeleteButtons = document.querySelectorAll('.chart-line-delete');
         const modelPriceForm = document.getElementById('model-price-form');
         const resetModelPricesBtn = document.getElementById('reset-model-prices');
         const modelPriceSelect = document.getElementById('model-price-model-select');
@@ -550,6 +630,9 @@ class CLIProxyManager {
         if (costDayBtn) {
             costDayBtn.addEventListener('click', () => this.switchCostPeriod('day'));
         }
+        if (addChartLineBtn) {
+            addChartLineBtn.addEventListener('click', () => this.changeChartLineCount(1));
+        }
         if (chartLineSelects.length) {
             chartLineSelects.forEach(select => {
                 select.addEventListener('change', (event) => {
@@ -558,6 +641,15 @@ class CLIProxyManager {
                 });
             });
         }
+        if (chartLineDeleteButtons.length) {
+            chartLineDeleteButtons.forEach(button => {
+                button.addEventListener('click', () => {
+                    const index = Number.parseInt(button.getAttribute('data-line-index'), 10);
+                    this.removeChartLine(Number.isNaN(index) ? -1 : index);
+                });
+            });
+        }
+        this.updateChartLineControlsUI();
         if (modelPriceForm) {
             modelPriceForm.addEventListener('submit', (event) => {
                 event.preventDefault();
@@ -627,6 +719,226 @@ class CLIProxyManager {
         });
     }
 
+    // 顶栏标题动画与状态
+    isMobileViewport() {
+        return typeof window !== 'undefined' ? window.innerWidth <= 768 : false;
+    }
+
+    setupBrandTitleAnimation() {
+        const mainPage = document.getElementById('main-page');
+        if (mainPage && mainPage.style.display === 'none') {
+            return;
+        }
+
+        const toggle = document.getElementById('brand-name-toggle');
+        const wrapper = document.getElementById('brand-texts');
+        const fullText = document.querySelector('.brand-text-full');
+        const shortText = document.querySelector('.brand-text-short');
+
+        if (!toggle || !wrapper || !fullText || !shortText) {
+            return;
+        }
+
+        this.brandElements = { toggle, wrapper, fullText, shortText };
+
+        if (!this.brandToggleHandler) {
+            this.brandToggleHandler = () => this.handleBrandToggle();
+            toggle.addEventListener('click', this.brandToggleHandler);
+        }
+        if (!this.brandResizeHandler) {
+            this.brandResizeHandler = () => this.handleBrandResize();
+            window.addEventListener('resize', this.brandResizeHandler);
+        }
+
+        if (this.isMobileViewport()) {
+            this.applyMobileBrandState();
+        } else {
+            this.enableBrandAnimation();
+        }
+    }
+
+    enableBrandAnimation() {
+        const { toggle } = this.brandElements || {};
+        if (toggle) {
+            toggle.removeAttribute('aria-disabled');
+            toggle.style.pointerEvents = '';
+        }
+        this.brandAnimationReady = true;
+    }
+
+    applyMobileBrandState() {
+        const { toggle, wrapper, shortText } = this.brandElements || {};
+        if (!toggle || !wrapper || !shortText) {
+            return;
+        }
+
+        this.clearBrandCollapseTimer();
+        this.brandIsCollapsed = true;
+        this.brandAnimationReady = false;
+
+        toggle.classList.add('collapsed');
+        toggle.classList.remove('expanded');
+        toggle.setAttribute('aria-disabled', 'true');
+        toggle.style.pointerEvents = 'none';
+
+        const targetWidth = this.getBrandTextWidth(shortText);
+        this.applyBrandWidth(targetWidth, { animate: false });
+    }
+
+    getBrandTextWidth(element) {
+        if (!element) {
+            return 0;
+        }
+        const width = element.scrollWidth || element.getBoundingClientRect().width || 0;
+        return Number.isFinite(width) ? Math.ceil(width) : 0;
+    }
+
+    applyBrandWidth(targetWidth, { animate = true } = {}) {
+        const wrapper = this.brandElements?.wrapper;
+        if (!wrapper || !Number.isFinite(targetWidth)) {
+            return;
+        }
+
+        if (!animate) {
+            const previousTransition = wrapper.style.transition;
+            wrapper.style.transition = 'none';
+            wrapper.style.width = `${targetWidth}px`;
+            wrapper.getBoundingClientRect(); // 强制重绘以应用无动画的宽度
+            wrapper.style.transition = previousTransition;
+            return;
+        }
+
+        wrapper.style.width = `${targetWidth}px`;
+    }
+
+    updateBrandTextWidths(options = {}) {
+        const { wrapper, fullText, shortText } = this.brandElements || {};
+        if (!wrapper || !fullText || !shortText) {
+            return;
+        }
+
+        const targetSpan = this.brandIsCollapsed ? shortText : fullText;
+        const targetWidth = this.getBrandTextWidth(targetSpan);
+        this.applyBrandWidth(targetWidth, { animate: !options.immediate });
+    }
+
+    setBrandCollapsed(collapsed, options = {}) {
+        const { toggle, fullText, shortText } = this.brandElements || {};
+        if (!toggle || !fullText || !shortText) {
+            return;
+        }
+
+        this.brandIsCollapsed = collapsed;
+        const targetSpan = collapsed ? shortText : fullText;
+        const targetWidth = this.getBrandTextWidth(targetSpan);
+
+        this.applyBrandWidth(targetWidth, { animate: options.animate !== false });
+        toggle.classList.toggle('collapsed', collapsed);
+        toggle.classList.toggle('expanded', !collapsed);
+    }
+
+    handleBrandResize() {
+        if (!this.brandElements?.wrapper) {
+            return;
+        }
+
+        if (this.isMobileViewport()) {
+            this.applyMobileBrandState();
+            return;
+        }
+
+        if (!this.brandAnimationReady) {
+            this.enableBrandAnimation();
+            this.brandIsCollapsed = false;
+            this.setBrandCollapsed(false, { animate: false });
+            this.scheduleBrandCollapse(this.brandCollapseDelayMs);
+            return;
+        }
+
+        this.updateBrandTextWidths({ immediate: true });
+    }
+
+    scheduleBrandCollapse(delayMs = this.brandCollapseDelayMs) {
+        this.clearBrandCollapseTimer();
+        this.brandCollapseTimer = window.setTimeout(() => {
+            this.setBrandCollapsed(true);
+            this.brandCollapseTimer = null;
+        }, delayMs);
+    }
+
+    clearBrandCollapseTimer() {
+        if (this.brandCollapseTimer) {
+            clearTimeout(this.brandCollapseTimer);
+            this.brandCollapseTimer = null;
+        }
+    }
+
+    startBrandCollapseCycle() {
+        this.setupBrandTitleAnimation();
+
+        if (this.isMobileViewport()) {
+            this.applyMobileBrandState();
+            return;
+        }
+
+        if (!this.brandAnimationReady) {
+            return;
+        }
+
+        this.clearBrandCollapseTimer();
+        this.brandIsCollapsed = false;
+        this.setBrandCollapsed(false, { animate: false });
+        this.scheduleBrandCollapse(this.brandCollapseDelayMs);
+    }
+
+    resetBrandTitleState() {
+        this.clearBrandCollapseTimer();
+        const mainPage = document.getElementById('main-page');
+
+        if (this.isMobileViewport()) {
+            this.applyMobileBrandState();
+            return;
+        }
+
+        if (!this.brandAnimationReady || (mainPage && mainPage.style.display === 'none')) {
+            this.brandIsCollapsed = false;
+            return;
+        }
+
+        this.brandIsCollapsed = false;
+        this.setBrandCollapsed(false, { animate: false });
+    }
+
+    refreshBrandTitleAfterTextChange() {
+        if (this.isMobileViewport()) {
+            this.applyMobileBrandState();
+            return;
+        }
+
+        if (!this.brandAnimationReady) {
+            return;
+        }
+        this.updateBrandTextWidths({ immediate: true });
+        if (!this.brandIsCollapsed) {
+            this.scheduleBrandCollapse(this.brandCollapseDelayMs);
+        }
+    }
+
+    handleBrandToggle() {
+        if (!this.brandAnimationReady) {
+            return;
+        }
+
+        const nextCollapsed = !this.brandIsCollapsed;
+        this.setBrandCollapsed(nextCollapsed);
+        this.clearBrandCollapseTimer();
+
+        if (!nextCollapsed) {
+            // 展开后给用户留出一点时间阅读再收起
+            this.scheduleBrandCollapse(this.brandCollapseDelayMs + 1500);
+        }
+    }
+
 
     // 显示通知
     showNotification(message, type = 'info') {
@@ -661,12 +973,21 @@ class CLIProxyManager {
     tokensChart = null;
     costChart = null;
     currentUsageData = null;
-    chartLineSelections = ['none', 'none', 'none'];
-    chartLineSelectIds = ['chart-line-select-0', 'chart-line-select-1', 'chart-line-select-2'];
+    chartLineMaxCount = 9;
+    chartLineVisibleCount = 3;
+    chartLineSelections = Array(3).fill('none');
+    chartLineSelectionsInitialized = false;
+    chartLineSelectIds = Array.from({ length: 9 }, (_, idx) => `chart-line-select-${idx}`);
     chartLineStyles = [
         { borderColor: '#3b82f6', backgroundColor: 'rgba(59, 130, 246, 0.15)' },
         { borderColor: '#a855f7', backgroundColor: 'rgba(168, 85, 247, 0.15)' },
-        { borderColor: '#10b981', backgroundColor: 'rgba(16, 185, 129, 0.15)' }
+        { borderColor: '#10b981', backgroundColor: 'rgba(16, 185, 129, 0.15)' },
+        { borderColor: '#f97316', backgroundColor: 'rgba(249, 115, 22, 0.15)' },
+        { borderColor: '#ec4899', backgroundColor: 'rgba(236, 72, 153, 0.15)' },
+        { borderColor: '#14b8a6', backgroundColor: 'rgba(20, 184, 166, 0.15)' },
+        { borderColor: '#8b5cf6', backgroundColor: 'rgba(139, 92, 246, 0.15)' },
+        { borderColor: '#f59e0b', backgroundColor: 'rgba(245, 158, 11, 0.15)' },
+        { borderColor: '#22c55e', backgroundColor: 'rgba(34, 197, 94, 0.15)' }
     ];
     modelPriceStorageKey = 'cli-proxy-model-prices-v2';
     modelPrices = {};
@@ -729,7 +1050,8 @@ function exposeManagerInstance(instance) {
 function setupSiteLogo() {
     const img = document.getElementById('site-logo');
     const loginImg = document.getElementById('login-logo');
-    if (!img && !loginImg) return;
+    const favicon = document.getElementById('favicon-link');
+    if (!img && !loginImg && !favicon) return;
 
     const inlineLogo = typeof window !== 'undefined' ? window.__INLINE_LOGO__ : null;
     if (inlineLogo) {
@@ -740,6 +1062,9 @@ function setupSiteLogo() {
         if (loginImg) {
             loginImg.src = inlineLogo;
             loginImg.style.display = 'inline-block';
+        }
+        if (favicon) {
+            favicon.href = inlineLogo;
         }
         return;
     }
@@ -761,6 +1086,9 @@ function setupSiteLogo() {
             if (loginImg) {
                 loginImg.src = test.src;
                 loginImg.style.display = 'inline-block';
+            }
+            if (favicon) {
+                favicon.href = test.src;
             }
         };
         test.onerror = () => {

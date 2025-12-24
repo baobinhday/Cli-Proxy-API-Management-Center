@@ -1,6 +1,49 @@
 const DEFAULT_MODEL_PRICE_STORAGE_KEY = 'cli-proxy-model-prices-v2';
 const LEGACY_MODEL_PRICE_STORAGE_KEY = 'cli-proxy-model-prices';
 const TOKENS_PER_PRICE_UNIT = 1_000_000;
+const DEFAULT_CHART_LINE_COUNT = 3;
+const MIN_CHART_LINE_COUNT = 1;
+const ALL_MODELS_VALUE = 'all';
+
+export function maskUsageSensitiveValue(value) {
+    if (value === null || value === undefined) {
+        return '';
+    }
+    const raw = typeof value === 'string' ? value : String(value);
+    if (!raw) {
+        return '';
+    }
+    const maskFn = (this && typeof this.maskApiKey === 'function') ? this.maskApiKey : (v) => v;
+    let masked = raw;
+
+    const queryRegex = /([?&])(api[-_]?key|key|token|access_token|authorization)=([^&#\s]+)/ig;
+    masked = masked.replace(queryRegex, (full, prefix, keyName, valuePart) => `${prefix}${keyName}=${maskFn(valuePart)}`);
+
+    const headerRegex = /(api[-_]?key|key|token|access[-_]?token|authorization)\s*([:=])\s*([A-Za-z0-9._-]+)/ig;
+    masked = masked.replace(headerRegex, (full, keyName, separator, valuePart) => `${keyName}${separator}${maskFn(valuePart)}`);
+
+    const keyLikeRegex = /(sk-[A-Za-z0-9]{6,}|AI[a-zA-Z0-9_-]{6,}|AIza[0-9A-Za-z-_]{8,}|hf_[A-Za-z0-9]{6,}|pk_[A-Za-z0-9]{6,}|rk_[A-Za-z0-9]{6,})/g;
+    masked = masked.replace(keyLikeRegex, match => maskFn(match));
+
+    if (masked === raw) {
+        const trimmed = raw.trim();
+        if (trimmed && !/\s/.test(trimmed)) {
+            const looksLikeKey = /^sk-/i.test(trimmed)
+                || /^AI/i.test(trimmed)
+                || /^AIza/i.test(trimmed)
+                || /^hf_/i.test(trimmed)
+                || /^pk_/i.test(trimmed)
+                || /^rk_/i.test(trimmed)
+                || (!/[\\/]/.test(trimmed) && (/\d/.test(trimmed) || trimmed.length >= 10))
+                || trimmed.length >= 24;
+            if (looksLikeKey) {
+                return maskFn(trimmed);
+            }
+        }
+    }
+
+    return masked;
+}
 
 // 获取API密钥的统计信息
 export async function getKeyStats(usageData = null) {
@@ -42,7 +85,9 @@ export async function getKeyStats(usageData = null) {
                 const details = modelEntry.details || [];
 
                 details.forEach(detail => {
-                    const source = detail.source;
+                    const source = this.maskUsageSensitiveValue
+                        ? this.maskUsageSensitiveValue(detail.source)
+                        : detail.source;
                     const authIndexKey = normalizeAuthIndex(detail?.auth_index);
                     const isFailed = detail.failed === true;
 
@@ -95,6 +140,7 @@ export async function loadUsageStats(usageData = null) {
 
         // 更新概览卡片
         this.updateUsageOverview(usage);
+        this.renderOverviewSparklines(usage);
         this.updateChartLineSelectors(usage);
         this.renderModelPriceOptions(usage);
         this.renderSavedModelPrices();
@@ -123,6 +169,7 @@ export async function loadUsageStats(usageData = null) {
         this.renderModelPriceOptions(null);
         this.renderSavedModelPrices();
         this.updateCostSummaryAndChart(null);
+        this.destroySparklineCharts();
 
         // 清空概览数据
         ['total-requests', 'success-requests', 'failed-requests', 'total-tokens', 'cached-tokens', 'reasoning-tokens', 'rpm-30m', 'tpm-30m'].forEach(id => {
@@ -197,6 +244,36 @@ export function formatPerMinuteValue(value) {
     return num.toFixed(2);
 }
 
+export function formatCompactNumber(value) {
+    const num = Number(value);
+    if (!Number.isFinite(num)) {
+        return '0';
+    }
+    const abs = Math.abs(num);
+    if (abs >= 1_000_000) {
+        return `${(num / 1_000_000).toFixed(1)}M`;
+    }
+    if (abs >= 1_000) {
+        return `${(num / 1_000).toFixed(1)}K`;
+    }
+    return abs >= 1 ? num.toFixed(0) : num.toFixed(2);
+}
+
+export function formatCompactNumber(value) {
+    const num = Number(value);
+    if (!Number.isFinite(num)) {
+        return '0';
+    }
+    const abs = Math.abs(num);
+    if (abs >= 1_000_000) {
+        return `${(num / 1_000_000).toFixed(1)}M`;
+    }
+    if (abs >= 1_000) {
+        return `${(num / 1_000).toFixed(1)}K`;
+    }
+    return abs >= 1 ? num.toFixed(0) : num.toFixed(2);
+}
+
 export function getModelNamesFromUsage(usage) {
     if (!usage) {
         return [];
@@ -214,23 +291,136 @@ export function getModelNamesFromUsage(usage) {
     return Array.from(names).sort((a, b) => a.localeCompare(b));
 }
 
+export function getChartLineMaxCount() {
+    const idCount = Array.isArray(this.chartLineSelectIds) ? this.chartLineSelectIds.length : 0;
+    const configuredMax = Number(this.chartLineMaxCount);
+    const fallback = idCount || DEFAULT_CHART_LINE_COUNT;
+    const resolvedMax = Number.isFinite(configuredMax) ? configuredMax : fallback;
+    if (idCount > 0) {
+        return Math.max(MIN_CHART_LINE_COUNT, Math.min(resolvedMax, idCount));
+    }
+    return Math.max(MIN_CHART_LINE_COUNT, resolvedMax);
+}
+
+export function getVisibleChartLineCount() {
+    const maxCount = this.getChartLineMaxCount();
+    const stored = Number(this.chartLineVisibleCount);
+    const base = Number.isFinite(stored)
+        ? stored
+        : (Array.isArray(this.chartLineSelections) ? this.chartLineSelections.length : DEFAULT_CHART_LINE_COUNT);
+    const resolved = Math.min(Math.max(base, MIN_CHART_LINE_COUNT), maxCount);
+    this.chartLineVisibleCount = resolved;
+    return resolved;
+}
+
+export function ensureChartLineSelectionLength(targetLength = null) {
+    const maxCount = this.getChartLineMaxCount();
+    const desiredLength = Math.min(
+        Math.max(targetLength ?? this.getVisibleChartLineCount(), MIN_CHART_LINE_COUNT),
+        maxCount
+    );
+
+    if (!Array.isArray(this.chartLineSelections)) {
+        this.chartLineSelections = Array(desiredLength).fill('none');
+        return this.chartLineSelections;
+    }
+
+    const trimmed = this.chartLineSelections.slice(0, maxCount);
+    if (trimmed.length < desiredLength) {
+        this.chartLineSelections = [...trimmed, ...Array(desiredLength - trimmed.length).fill('none')];
+    } else if (trimmed.length > desiredLength) {
+        this.chartLineSelections = trimmed.slice(0, desiredLength);
+    } else {
+        this.chartLineSelections = trimmed;
+    }
+    return this.chartLineSelections;
+}
+
+export function updateChartLineControlsUI() {
+    const maxCount = this.getChartLineMaxCount();
+    const visibleCount = this.getVisibleChartLineCount();
+    const counter = document.getElementById('chart-line-count');
+    if (counter) {
+        counter.textContent = `${visibleCount}/${maxCount}`;
+    }
+    const addBtn = document.getElementById('add-chart-line');
+    if (addBtn) {
+        addBtn.disabled = visibleCount >= maxCount;
+    }
+    const deleteButtons = document.querySelectorAll('.chart-line-delete');
+    if (deleteButtons.length) {
+        deleteButtons.forEach(button => {
+            const group = button.closest('.chart-line-group');
+            const index = Number.parseInt(button.getAttribute('data-line-index'), 10);
+            const isVisible = group
+                ? !group.classList.contains('chart-line-hidden')
+                : (Number.isFinite(index) ? index < visibleCount : true);
+            button.disabled = visibleCount <= MIN_CHART_LINE_COUNT || !isVisible;
+        });
+    }
+}
+
+export function setChartLineVisibleCount(count) {
+    const maxCount = this.getChartLineMaxCount();
+    const nextCount = Math.min(Math.max(count, MIN_CHART_LINE_COUNT), maxCount);
+    const current = this.getVisibleChartLineCount();
+    if (nextCount === current) {
+        this.updateChartLineControlsUI();
+        return;
+    }
+    this.chartLineVisibleCount = nextCount;
+    this.ensureChartLineSelectionLength(nextCount);
+    this.updateChartLineSelectors(this.currentUsageData);
+    this.refreshChartsForSelections();
+}
+
+export function changeChartLineCount(delta = 0) {
+    const current = this.getVisibleChartLineCount();
+    this.setChartLineVisibleCount(current + delta);
+}
+
+export function removeChartLine(index) {
+    const visibleCount = this.getVisibleChartLineCount();
+    const normalizedIndex = Number.parseInt(index, 10);
+    if (!Number.isFinite(normalizedIndex) || normalizedIndex < 0 || normalizedIndex >= visibleCount) {
+        return;
+    }
+    if (visibleCount <= MIN_CHART_LINE_COUNT) {
+        return;
+    }
+    const nextSelections = this.ensureChartLineSelectionLength(visibleCount).slice(0, visibleCount);
+    nextSelections.splice(normalizedIndex, 1);
+    this.chartLineSelections = nextSelections;
+    this.chartLineVisibleCount = Math.max(MIN_CHART_LINE_COUNT, visibleCount - 1);
+    this.updateChartLineSelectors(this.currentUsageData);
+    this.refreshChartsForSelections();
+}
+
 export function updateChartLineSelectors(usage) {
     const modelNames = this.getModelNamesFromUsage(usage);
     const selectors = this.chartLineSelectIds
         .map(id => document.getElementById(id))
         .filter(Boolean);
 
+    const availableCount = selectors.length || this.getChartLineMaxCount();
+    const visibleCount = Math.min(this.getVisibleChartLineCount(), availableCount);
+    this.chartLineVisibleCount = visibleCount;
+    this.ensureChartLineSelectionLength(visibleCount);
+    const wasInitialized = this.chartLineSelectionsInitialized === true;
+
     if (!selectors.length) {
-        this.chartLineSelections = ['none', 'none', 'none'];
+        this.chartLineSelections = Array(visibleCount).fill('none');
+        this.chartLineSelectionsInitialized = false;
+        this.updateChartLineControlsUI();
         return;
     }
 
     const optionsFragment = () => {
         const fragment = document.createDocumentFragment();
-        const hiddenOption = document.createElement('option');
-        hiddenOption.value = 'none';
-        hiddenOption.textContent = i18n.t('usage_stats.chart_line_hidden');
-        fragment.appendChild(hiddenOption);
+        const allOption = document.createElement('option');
+        allOption.value = ALL_MODELS_VALUE;
+        allOption.textContent = i18n.t('usage_stats.chart_line_all');
+        fragment.appendChild(allOption);
         modelNames.forEach(name => {
             const option = document.createElement('option');
             option.value = name;
@@ -241,57 +431,82 @@ export function updateChartLineSelectors(usage) {
     };
 
     const hasModels = modelNames.length > 0;
-    selectors.forEach(select => {
+    selectors.forEach((select, index) => {
+        const group = select.closest('.chart-line-group');
+        const isVisible = index < visibleCount;
+        if (group) {
+            group.classList.toggle('chart-line-hidden', !isVisible);
+        }
+        const deleteBtn = group ? group.querySelector('.chart-line-delete') : null;
         select.innerHTML = '';
         select.appendChild(optionsFragment());
-        select.disabled = !hasModels;
+        select.disabled = !isVisible;
+        if (deleteBtn) {
+            deleteBtn.disabled = !isVisible || visibleCount <= MIN_CHART_LINE_COUNT;
+        }
+        if (!isVisible) {
+            select.value = ALL_MODELS_VALUE;
+        }
     });
 
     if (!hasModels) {
-        this.chartLineSelections = ['none', 'none', 'none'];
-        selectors.forEach(select => {
-            select.value = 'none';
+        this.chartLineSelections = Array(visibleCount).fill(ALL_MODELS_VALUE);
+        this.chartLineSelectionsInitialized = false;
+        selectors.forEach((select, index) => {
+            const group = select.closest('.chart-line-group');
+            if (group) {
+                group.classList.toggle('chart-line-hidden', index >= visibleCount);
+            }
+            select.value = ALL_MODELS_VALUE;
         });
+        this.updateChartLineControlsUI();
         return;
     }
 
-    const nextSelections = Array.isArray(this.chartLineSelections)
-        ? [...this.chartLineSelections]
-        : ['none', 'none', 'none'];
+    const nextSelections = this.ensureChartLineSelectionLength(visibleCount).slice(0, visibleCount);
 
-    const validNames = new Set(modelNames);
+    const validNames = new Set([...modelNames, ALL_MODELS_VALUE]);
     let hasActiveSelection = false;
     for (let i = 0; i < nextSelections.length; i++) {
         const selection = nextSelections[i];
         if (selection && selection !== 'none' && !validNames.has(selection)) {
-            nextSelections[i] = 'none';
+            nextSelections[i] = ALL_MODELS_VALUE;
         }
-        if (nextSelections[i] !== 'none') {
+        if (nextSelections[i] && nextSelections[i] !== 'none') {
             hasActiveSelection = true;
         }
     }
 
-    if (!hasActiveSelection) {
+    const allSelectionsAreAll = nextSelections.length > 0 && nextSelections.every(value => value === ALL_MODELS_VALUE);
+
+    if (!hasActiveSelection || (!wasInitialized && allSelectionsAreAll)) {
         modelNames.slice(0, nextSelections.length).forEach((name, index) => {
             nextSelections[index] = name;
         });
     }
 
+    for (let i = 0; i < nextSelections.length; i++) {
+        if (!nextSelections[i] || nextSelections[i] === 'none') {
+            nextSelections[i] = modelNames[i % Math.max(modelNames.length, 1)] || ALL_MODELS_VALUE;
+        }
+    }
+
     this.chartLineSelections = nextSelections;
     selectors.forEach((select, index) => {
-        const value = this.chartLineSelections[index] || 'none';
-        select.value = value;
+        const value = this.chartLineSelections[index] || ALL_MODELS_VALUE;
+        select.value = index < visibleCount ? value : ALL_MODELS_VALUE;
     });
+    this.chartLineSelectionsInitialized = hasModels;
+    this.updateChartLineControlsUI();
 }
 
 export function handleChartLineSelectionChange(index, value) {
-    if (!Array.isArray(this.chartLineSelections)) {
-        this.chartLineSelections = ['none', 'none', 'none'];
-    }
-    if (index < 0 || index >= this.chartLineSelections.length) {
+    const visibleCount = this.getVisibleChartLineCount();
+    if (index < 0 || index >= visibleCount) {
         return;
     }
-    const normalized = value || 'none';
+    this.ensureChartLineSelectionLength(visibleCount);
+    const normalized = (value && value !== 'none') ? value : ALL_MODELS_VALUE;
     if (this.chartLineSelections[index] === normalized) {
         return;
     }
@@ -324,10 +539,9 @@ export function refreshChartsForSelections() {
 }
 
 export function getActiveChartLineSelections() {
-    if (!Array.isArray(this.chartLineSelections)) {
-        this.chartLineSelections = ['none', 'none', 'none'];
-    }
-    return this.chartLineSelections
+    const visibleCount = this.getVisibleChartLineCount();
+    const selections = this.ensureChartLineSelectionLength(visibleCount).slice(0, visibleCount);
+    return selections
         .map((value, index) => ({ model: value, index }))
         .filter(item => item.model && item.model !== 'none');
 }
@@ -496,29 +710,65 @@ export function renderSavedModelPrices() {
         container.innerHTML = `<div class="no-data-message">${i18n.t('usage_stats.model_price_empty')}</div>`;
         return;
     }
-
     const rows = entries.map(([model, price]) => {
         const prompt = Number(price?.prompt) || 0;
         const completion = Number(price?.completion) || 0;
+        const safeModel = this.escapeHtml ? this.escapeHtml(model) : model;
+        const editArg = JSON.stringify(model).replace(/"/g, '&quot;');
         return `
-            <div class="model-price-row">
-                <span class="model-name">${model}</span>
-                <span>$${prompt.toFixed(4)} / 1M</span>
-                <span>$${completion.toFixed(4)} / 1M</span>
+            <div class="provider-item model-price-item" onclick="manager.handleModelPriceEdit(${editArg})">
+                <div class="item-content">
+                    <div class="item-title">${safeModel}</div>
+                    <div class="item-meta">
+                        <span class="stat-badge stat-neutral">${i18n.t('usage_stats.model_price_prompt')}: $${prompt.toFixed(4)} / 1M</span>
+                        <span class="stat-badge stat-neutral">${i18n.t('usage_stats.model_price_completion')}: $${completion.toFixed(4)} / 1M</span>
+                    </div>
+                </div>
+                <div class="item-actions">
+                    <button class="btn btn-secondary" onclick="event.stopPropagation(); manager.handleModelPriceEdit(${editArg});">
+                        <i class="fas fa-edit"></i>
+                    </button>
+                </div>
             </div>
         `;
     }).join('');
 
-    container.innerHTML = `
-        <div class="model-price-table">
-            <div class="model-price-header">
-                <span>${i18n.t('usage_stats.model_price_model')}</span>
-                <span>${i18n.t('usage_stats.model_price_prompt')}</span>
-                <span>${i18n.t('usage_stats.model_price_completion')}</span>
-            </div>
-            ${rows}
-        </div>
-    `;
+    container.innerHTML = rows;
+}
+
+export function handleModelPriceEdit(modelName) {
+    const model = (modelName || '').trim();
+    const select = document.getElementById('model-price-model-select');
+    const promptInput = document.getElementById('model-price-prompt');
+    const completionInput = document.getElementById('model-price-completion');
+    const form = document.getElementById('model-price-form');
+    if (!select || !promptInput || !completionInput) {
+        return;
+    }
+
+    const options = Array.from(select.options).map(opt => opt.value);
+    if (model && !options.includes(model)) {
+        const opt = document.createElement('option');
+        opt.value = model;
+        opt.textContent = model;
+        select.appendChild(opt);
+    }
+
+    select.disabled = false;
+    select.value = model;
+    const price = this.modelPrices?.[model];
+    if (price) {
+        promptInput.value = Number.isFinite(price.prompt) ? price.prompt : '';
+        completionInput.value = Number.isFinite(price.completion) ? price.completion : '';
+    } else {
+        promptInput.value = '';
+        completionInput.value = '';
+    }
+
+    promptInput.focus();
+    if (form && typeof form.scrollIntoView === 'function') {
+        form.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
 }
 
 export function prefillModelPriceInputs() {
@@ -569,6 +819,7 @@ export function handleModelPriceSubmit() {
     this.persistModelPrices(next);
     this.renderSavedModelPrices();
     this.updateCostSummaryAndChart(this.currentUsageData, this.getCostChartPeriod());
+    this.renderOverviewSparklines(this.currentUsageData);
     this.showNotification(i18n.t('usage_stats.model_price_saved'), 'success');
 }
 
@@ -586,6 +837,7 @@ export function handleModelPriceReset() {
     this.renderSavedModelPrices();
     this.prefillModelPriceInputs();
     this.updateCostSummaryAndChart(this.currentUsageData, this.getCostChartPeriod());
+    this.renderOverviewSparklines(this.currentUsageData);
 }
 
 export function calculateTokenBreakdown(usage = null) {
@@ -642,6 +894,191 @@ export function calculateRecentPerMinuteRates(windowMinutes = 30, usage = null) 
         requestCount,
         tokenCount
     };
+}
+
+export function buildRecentWindowSeries(windowMinutes = 30, usage = null, prices = null) {
+    const usagePayload = usage || this.currentUsageData;
+    const effectiveWindow = Number.isFinite(windowMinutes) && windowMinutes > 0
+        ? Math.min(windowMinutes, 720)
+        : 30;
+    const bucketMs = 60 * 1000;
+    const bucketCount = Math.max(1, Math.floor(effectiveWindow));
+    const now = Date.now();
+    const windowStart = now - bucketCount * bucketMs;
+    const labels = Array.from({ length: bucketCount }, (_, index) =>
+        this.formatMinuteLabel(new Date(windowStart + index * bucketMs))
+    );
+
+    const requestSeries = new Array(bucketCount).fill(0);
+    const tokenSeries = new Array(bucketCount).fill(0);
+    const costSeries = new Array(bucketCount).fill(0);
+    const priceTable = prices || this.modelPrices || {};
+    const hasPrices = Object.keys(priceTable).length > 0;
+
+    if (!usagePayload) {
+        return {
+            labels,
+            requests: requestSeries,
+            tokens: tokenSeries,
+            rpm: requestSeries,
+            tpm: tokenSeries,
+            cost: costSeries,
+            hasPrices
+        };
+    }
+
+    const details = this.collectUsageDetailsFromUsage(usagePayload);
+    const calculateDetailCost = (detail) => {
+        if (!hasPrices) {
+            return 0;
+        }
+        const modelName = detail.__modelName || '';
+        const price = priceTable[modelName];
+        if (!price) {
+            return 0;
+        }
+        const tokens = detail?.tokens || {};
+        const promptTokens = Number(tokens.input_tokens) || 0;
+        const completionTokens = Number(tokens.output_tokens) || 0;
+        const promptCost = (promptTokens / TOKENS_PER_PRICE_UNIT) * (Number(price.prompt) || 0);
+        const completionCost = (completionTokens / TOKENS_PER_PRICE_UNIT) * (Number(price.completion) || 0);
+        const total = promptCost + completionCost;
+        return Number.isFinite(total) && total > 0 ? total : 0;
+    };
+
+    details.forEach(detail => {
+        const timestamp = Date.parse(detail.timestamp);
+        if (Number.isNaN(timestamp) || timestamp < windowStart) {
+            return;
+        }
+        const bucketIndex = Math.min(bucketCount - 1, Math.floor((timestamp - windowStart) / bucketMs));
+        if (bucketIndex < 0 || bucketIndex >= bucketCount) {
+            return;
+        }
+
+        requestSeries[bucketIndex] += 1;
+        tokenSeries[bucketIndex] += this.extractTotalTokens(detail);
+        costSeries[bucketIndex] += calculateDetailCost(detail);
+    });
+
+    return {
+        labels,
+        requests: requestSeries,
+        tokens: tokenSeries,
+        rpm: requestSeries,
+        tpm: tokenSeries,
+        cost: costSeries,
+        hasPrices
+    };
+}
+
+export function destroySparklineCharts(targetIds = null) {
+    if (!this.sparklineCharts) {
+        this.sparklineCharts = {};
+    }
+    const ids = targetIds && targetIds.length ? targetIds : Object.keys(this.sparklineCharts);
+    ids.forEach(id => {
+        const chart = this.sparklineCharts[id];
+        if (chart && typeof chart.destroy === 'function') {
+            chart.destroy();
+        }
+        delete this.sparklineCharts[id];
+
+        const canvas = document.getElementById(id);
+        if (canvas && typeof canvas.getContext === 'function') {
+            const ctx = canvas.getContext('2d');
+            if (ctx) {
+                const width = canvas.width || canvas.clientWidth || 300;
+                const height = canvas.height || canvas.clientHeight || 80;
+                ctx.clearRect(0, 0, width, height);
+            }
+        }
+    });
+}
+
+export function renderOverviewSparklines(usage = null) {
+    const series = this.buildRecentWindowSeries(30, usage, this.modelPrices);
+    const labels = series.labels || [];
+    const styleFor = (index = 0) => {
+        const fallback = { borderColor: '#3b82f6', backgroundColor: 'rgba(59, 130, 246, 0.15)' };
+        if (!Array.isArray(this.chartLineStyles) || !this.chartLineStyles.length) {
+            return fallback;
+        }
+        return this.chartLineStyles[index % this.chartLineStyles.length] || fallback;
+    };
+
+    const createSparkline = ({ id, data, styleIndex, requirePrices = false }) => {
+        if (requirePrices && !series.hasPrices) {
+            this.destroySparklineCharts([id]);
+            return;
+        }
+        const canvas = document.getElementById(id);
+        if (!canvas) {
+            return;
+        }
+
+        const style = styleFor(styleIndex);
+        const values = Array.isArray(data) && data.length ? data : [0];
+        const maxValue = values.reduce((max, value) => Math.max(max, Number(value) || 0), 0);
+        const suggestedMax = maxValue > 0 ? maxValue * 1.2 : 1;
+
+        this.destroySparklineCharts([id]);
+        if (!this.sparklineCharts) {
+            this.sparklineCharts = {};
+        }
+
+        this.sparklineCharts[id] = new Chart(canvas, {
+            type: 'line',
+            data: {
+                labels,
+                datasets: [{
+                    data: values,
+                    borderColor: style.borderColor,
+                    backgroundColor: style.backgroundColor,
+                    fill: true,
+                    tension: 0.35,
+                    pointRadius: 0,
+                    pointHoverRadius: 3,
+                    borderWidth: 2,
+                    spanGaps: true
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                animation: false,
+                interaction: { intersect: false, mode: 'index' },
+                plugins: {
+                    legend: { display: false },
+                    tooltip: {
+                        callbacks: {
+                            label: (ctx) => this.formatCompactNumber(ctx.parsed.y || 0)
+                        }
+                    }
+                },
+                layout: { padding: { left: 2, right: 2, top: 6, bottom: 6 } },
+                scales: {
+                    x: { display: false },
+                    y: {
+                        display: false,
+                        beginAtZero: true,
+                        suggestedMin: 0,
+                        suggestedMax
+                    }
+                },
+                elements: {
+                    line: { borderWidth: 2, tension: 0.35 },
+                    point: { radius: 0, hitRadius: 3 }
+                }
+            }
+        });
+    };
+
+    createSparkline({ id: 'requests-sparkline', data: series.requests, styleIndex: 0 });
+    createSparkline({ id: 'tokens-sparkline', data: series.tokens, styleIndex: 1 });
+    createSparkline({ id: 'rpm-sparkline', data: series.rpm, styleIndex: 2 });
+    createSparkline({ id: 'tpm-sparkline', data: series.tpm, styleIndex: 3 });
+    createSparkline({ id: 'cost-sparkline', data: series.cost, styleIndex: 7, requirePrices: true });
 }
 
 export function createHourlyBucketMeta() {
@@ -761,11 +1198,37 @@ export function buildChartDataForMetric(period = 'day', metric = 'requests') {
     const labels = baseSeries?.labels || [];
     const dataByModel = baseSeries?.dataByModel || new Map();
     const activeSelections = this.getActiveChartLineSelections();
+    let allSeriesCache = null;
+
+    const getAllSeries = () => {
+        if (allSeriesCache) {
+            return allSeriesCache;
+        }
+        const summed = new Array(labels.length).fill(0);
+        dataByModel.forEach(values => {
+            values.forEach((value, idx) => {
+                summed[idx] = (summed[idx] || 0) + value;
+            });
+        });
+        allSeriesCache = summed;
+        return summed;
+    };
+
+    const getSeriesForSelection = (selectionValue) => {
+        if (selectionValue === ALL_MODELS_VALUE) {
+            return getAllSeries();
+        }
+        return dataByModel.get(selectionValue) || new Array(labels.length).fill(0);
+    };
+
     const datasets = activeSelections.map(selection => {
-        const values = dataByModel.get(selection.model) || new Array(labels.length).fill(0);
-        const style = this.chartLineStyles[selection.index] || this.chartLineStyles[0];
+        const values = getSeriesForSelection(selection.model);
+        const style = this.chartLineStyles[selection.index % this.chartLineStyles.length] || this.chartLineStyles[0];
+        const label = selection.model === ALL_MODELS_VALUE
+            ? i18n.t('usage_stats.chart_line_all')
+            : selection.model;
         return {
-            label: selection.model,
+            label,
             data: values,
             borderColor: style.borderColor,
             backgroundColor: style.backgroundColor,
@@ -790,6 +1253,15 @@ export function formatHourLabel(date) {
     const day = date.getDate().toString().padStart(2, '0');
     const hour = date.getHours().toString().padStart(2, '0');
     return `${month}-${day} ${hour}:00`;
+}
+
+export function formatMinuteLabel(date) {
+    if (!(date instanceof Date)) {
+        return '';
+    }
+    const hour = date.getHours().toString().padStart(2, '0');
+    const minute = date.getMinutes().toString().padStart(2, '0');
+    return `${hour}:${minute}`;
 }
 
 export function formatDayLabel(date) {
@@ -1323,17 +1795,24 @@ export function updateApiStatsTable(data) {
     Object.entries(apis).forEach(([endpoint, apiData]) => {
         const totalRequests = apiData.total_requests || 0;
         const endpointCost = calculateEndpointCost(apiData);
+        const displayEndpoint = (this.maskUsageSensitiveValue
+            ? this.maskUsageSensitiveValue(endpoint)
+            : (endpoint ?? '')) || '-';
+        const safeEndpoint = this.escapeHtml
+            ? this.escapeHtml(displayEndpoint)
+            : displayEndpoint;
 
         // 构建模型详情
         let modelsHtml = '';
         if (apiData.models && Object.keys(apiData.models).length > 0) {
             modelsHtml = '<div class="model-details">';
             Object.entries(apiData.models).forEach(([modelName, modelData]) => {
+                const safeModel = this.escapeHtml ? this.escapeHtml(modelName || '') : (modelName || '');
                 const modelRequests = modelData.total_requests ?? 0;
                 const modelTokens = this.formatTokensInMillions(modelData.total_tokens ?? 0);
                 modelsHtml += `
                     <div class="model-item">
-                        <span class="model-name">${modelName}</span>
+                        <span class="model-name">${safeModel}</span>
                         <span>${modelRequests} 请求 / ${modelTokens} tokens</span>
                     </div>
                 `;
@@ -1343,7 +1822,7 @@ export function updateApiStatsTable(data) {
 
         tableHtml += `
             <tr>
-                <td>${endpoint}</td>
+                <td>${safeEndpoint}</td>
                 <td>${totalRequests}</td>
                 <td>${this.formatTokensInMillions(apiData.total_tokens || 0)}</td>
                 <td>${hasPrices && endpointCost > 0 ? this.formatUsd(endpointCost) : '--'}</td>
@@ -1360,7 +1839,15 @@ export const usageModule = {
     getKeyStats,
     loadUsageStats,
     updateUsageOverview,
+    maskUsageSensitiveValue,
     getModelNamesFromUsage,
+    getChartLineMaxCount,
+    getVisibleChartLineCount,
+    ensureChartLineSelectionLength,
+    updateChartLineControlsUI,
+    setChartLineVisibleCount,
+    changeChartLineCount,
+    removeChartLine,
     updateChartLineSelectors,
     handleChartLineSelectionChange,
     refreshChartsForSelections,
@@ -1373,19 +1860,23 @@ export const usageModule = {
     persistModelPrices,
     renderModelPriceOptions,
     renderSavedModelPrices,
+    handleModelPriceEdit,
     prefillModelPriceInputs,
     normalizePriceValue,
     handleModelPriceSubmit,
     handleModelPriceReset,
     calculateTokenBreakdown,
     calculateRecentPerMinuteRates,
+    buildRecentWindowSeries,
     createHourlyBucketMeta,
     buildHourlySeriesByModel,
     buildDailySeriesByModel,
     buildChartDataForMetric,
     formatHourLabel,
+    formatMinuteLabel,
     formatTokensInMillions,
     formatPerMinuteValue,
+    formatCompactNumber,
     formatDayLabel,
     extractTotalTokens,
     formatUsd,
@@ -1393,6 +1884,8 @@ export const usageModule = {
     getCostChartPeriod,
     setCostChartPlaceholder,
     destroyCostChart,
+    destroySparklineCharts,
+    renderOverviewSparklines,
     initializeCostChart,
     updateCostSummaryAndChart,
     initializeCharts,
