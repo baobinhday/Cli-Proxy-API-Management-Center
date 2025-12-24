@@ -72,4 +72,14 @@ export const configApi = {
    * WebSocket 鉴权开关
    */
   updateWsAuth: (enabled: boolean) => apiClient.put('/ws-auth', { value: enabled }),
+
+  /**
+   * 存储：只读模式开关
+   */
+  updateReadOnly: (enabled: boolean) => apiClient.put('/storage/readonly', { value: enabled }),
+
+  /**
+   * 存储：同步间隔（分钟）
+   */
+  updateSyncInterval: (minutes: number) => apiClient.put('/storage/sync-interval', { value: minutes }),
 };

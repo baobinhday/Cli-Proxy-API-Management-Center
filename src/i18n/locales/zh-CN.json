@@ -137,7 +137,10 @@
     "request_log_enable": "启用请求日志",
     "request_log_warning": "仅在需要排查问题时开启，日常请保持关闭。",
     "ws_auth_title": "WebSocket 鉴权",
-    "ws_auth_enable": "启用 /ws/* 鉴权"
+    "ws_auth_enable": "启用 /ws/* 鉴权",
+    "storage_title": "存储设置",
+    "storage_read_only_enable": "只读模式",
+    "storage_interval_pull_label": "拉取间隔 (分钟)"
   },
   "api_keys": {
     "title": "API 密钥管理",
@@ -692,6 +695,8 @@
     "logging_to_file_updated": "日志记录设置已更新",
     "request_log_updated": "请求日志设置已更新",
     "ws_auth_updated": "WebSocket 鉴权设置已更新",
+    "storage_read_only_updated": "只读模式设置已更新",
+    "storage_sync_interval_updated": "同步间隔设置已更新",
     "api_key_added": "API密钥添加成功",
     "api_key_updated": "API密钥更新成功",
     "api_key_deleted": "API密钥删除成功",

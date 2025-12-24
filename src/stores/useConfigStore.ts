@@ -45,7 +45,9 @@ const SECTION_KEYS: RawConfigSection[] = [
   'codex-api-key',
   'claude-api-key',
   'openai-compatibility',
-  'oauth-excluded-models'
+  'oauth-excluded-models',
+  'read-only',
+  'sync-interval-minutes'
 ];
 
 const extractSectionValue = (config: Config | null, section?: RawConfigSection) => {
@@ -81,6 +83,10 @@ const extractSectionValue = (config: Config | null, section?: RawConfigSection) 
       return config.openaiCompatibility;
     case 'oauth-excluded-models':
       return config.oauthExcludedModels;
+    case 'read-only':
+      return config.readOnly;
+    case 'sync-interval-minutes':
+      return config.syncIntervalMinutes;
     default:
       if (!section) return undefined;
       return config.raw?.[section];
@@ -217,6 +223,12 @@ export const useConfigStore = create<ConfigState>((set, get) => ({
           break;
         case 'oauth-excluded-models':
           nextConfig.oauthExcludedModels = value;
+          break;
+        case 'read-only':
+          nextConfig.readOnly = value;
+          break;
+        case 'sync-interval-minutes':
+          nextConfig.syncIntervalMinutes = value;
           break;
         default:
           break;
