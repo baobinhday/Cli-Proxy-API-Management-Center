@@ -299,6 +299,9 @@ export const normalizeConfigResponse = (raw: any): Config => {
     config.oauthExcludedModels = oauthExcluded;
   }
 
+  config.readOnly = raw['read-only'] ?? raw.readOnly;
+  config.syncIntervalMinutes = raw['sync-interval-minutes'] ?? raw.syncIntervalMinutes;
+
   return config;
 };
 
