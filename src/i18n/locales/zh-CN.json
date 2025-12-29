@@ -137,10 +137,7 @@
     "request_log_enable": "启用请求日志",
     "request_log_warning": "仅在需要排查问题时开启，日常请保持关闭。",
     "ws_auth_title": "WebSocket 鉴权",
-    "ws_auth_enable": "启用 /ws/* 鉴权",
-    "storage_title": "存储设置",
-    "storage_read_only_enable": "只读模式",
-    "storage_interval_pull_label": "拉取间隔 (分钟)"
+    "ws_auth_enable": "启用 /ws/* 鉴权"
   },
   "api_keys": {
     "title": "API 密钥管理",
@@ -359,6 +356,18 @@
     "models_unsupported_desc": "请更新 CLI Proxy API 到最新版本后重试",
     "models_excluded_badge": "已排除",
     "models_excluded_hint": "此模型已被 OAuth 排除"
+  },
+  "antigravity_quota": {
+    "title": "Antigravity 额度",
+    "empty_title": "暂无 Antigravity 认证",
+    "empty_desc": "上传 Antigravity 认证文件后即可查看额度。",
+    "idle": "尚未加载额度，请点击刷新按钮。",
+    "loading": "正在加载额度...",
+    "load_failed": "额度获取失败：{{message}}",
+    "missing_auth_index": "认证文件缺少 auth_index",
+    "empty_models": "暂无额度数据",
+    "refresh_button": "刷新额度",
+    "fetch_all": "获取全部"
   },
   "vertex_import": {
     "title": "Vertex JSON 登录",
@@ -706,8 +715,6 @@
     "logging_to_file_updated": "日志记录设置已更新",
     "request_log_updated": "请求日志设置已更新",
     "ws_auth_updated": "WebSocket 鉴权设置已更新",
-    "storage_read_only_updated": "只读模式设置已更新",
-    "storage_sync_interval_updated": "同步间隔设置已更新",
     "api_key_added": "API密钥添加成功",
     "api_key_updated": "API密钥更新成功",
     "api_key_deleted": "API密钥删除成功",

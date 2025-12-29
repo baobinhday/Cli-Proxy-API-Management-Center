@@ -27,8 +27,6 @@ export interface Config {
   claudeApiKeys?: ProviderKeyConfig[];
   openaiCompatibility?: OpenAIProviderConfig[];
   oauthExcludedModels?: Record<string, string[]>;
-  readOnly?: boolean;
-  syncIntervalMinutes?: number;
   raw?: Record<string, any>;
 }
 
@@ -47,9 +45,7 @@ export type RawConfigSection =
   | 'codex-api-key'
   | 'claude-api-key'
   | 'openai-compatibility'
-  | 'oauth-excluded-models'
-  | 'read-only'
-  | 'sync-interval-minutes';
+  | 'oauth-excluded-models';
 
 export interface ConfigCache {
   data: Config;

@@ -137,10 +137,7 @@
     "request_log_enable": "Enable request logging",
     "request_log_warning": "Keep this off unless you need detailed troubleshooting.",
     "ws_auth_title": "WebSocket Authentication",
-    "ws_auth_enable": "Require auth for /ws/*",
-    "storage_title": "Storage Setting",
-    "storage_read_only_enable": "Read only",
-    "storage_interval_pull_label": "Interval pull (minutes)"
+    "ws_auth_enable": "Require auth for /ws/*"
   },
   "api_keys": {
     "title": "API Keys Management",
@@ -359,6 +356,18 @@
     "models_unsupported_desc": "Please update CLI Proxy API to the latest version and try again",
     "models_excluded_badge": "Excluded",
     "models_excluded_hint": "This model is excluded by OAuth"
+  },
+  "antigravity_quota": {
+    "title": "Antigravity Quota",
+    "empty_title": "No Antigravity Auth Files",
+    "empty_desc": "Upload an Antigravity credential to view remaining quota.",
+    "idle": "Not loaded. Click Refresh Button.",
+    "loading": "Loading quota...",
+    "load_failed": "Failed to load quota: {{message}}",
+    "missing_auth_index": "Auth file missing auth_index",
+    "empty_models": "No quota data available",
+    "refresh_button": "Refresh Quota",
+    "fetch_all": "Fetch All"
   },
   "vertex_import": {
     "title": "Vertex JSON Login",
@@ -706,8 +715,6 @@
     "logging_to_file_updated": "Logging settings updated",
     "request_log_updated": "Request logging setting updated",
     "ws_auth_updated": "WebSocket authentication setting updated",
-    "storage_read_only_updated": "Read only setting updated",
-    "storage_sync_interval_updated": "Sync interval updated",
     "api_key_added": "API key added successfully",
     "api_key_updated": "API key updated successfully",
     "api_key_deleted": "API key deleted successfully",
