@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
+import { useInterval } from '@/hooks/useInterval';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
@@ -11,12 +12,14 @@ import { useAuthStore, useNotificationStore, useThemeStore } from '@/stores';
 import { authFilesApi, usageApi } from '@/services/api';
 import { apiClient } from '@/services/api/client';
 import type { AuthFileItem } from '@/types';
-import type { KeyStats, KeyStatBucket } from '@/utils/usage';
+import type { KeyStats, KeyStatBucket, UsageDetail } from '@/utils/usage';
+import { collectUsageDetails, calculateStatusBarData } from '@/utils/usage';
 import { formatFileSize } from '@/utils/format';
 import styles from './AuthFilesPage.module.scss';
 
 type ThemeColors = { bg: string; text: string; border?: string };
 type TypeColorSet = { light: ThemeColors; dark?: ThemeColors };
+type ResolvedTheme = 'light' | 'dark';
 
 // 标签类型颜色配置（对齐重构前 styles.css 的 file-type-badge 颜色）
 const TYPE_COLORS: Record<string, TypeColorSet> = {
@@ -61,6 +64,20 @@ const TYPE_COLORS: Record<string, TypeColorSet> = {
     dark: { bg: '#3a3a3a', text: '#aaaaaa', border: '1px dashed #666666' }
   }
 };
+
+const OAUTH_PROVIDER_PRESETS = [
+  'gemini',
+  'gemini-cli',
+  'vertex',
+  'aistudio',
+  'antigravity',
+  'claude',
+  'codex',
+  'qwen',
+  'iflow'
+];
+
+const OAUTH_PROVIDER_EXCLUDES = new Set(['all', 'unknown', 'empty']);
 
 interface ExcludedFormState {
   provider: string;
@@ -129,7 +146,7 @@ export function AuthFilesPage() {
   const { t } = useTranslation();
   const { showNotification } = useNotificationStore();
   const connectionStatus = useAuthStore((state) => state.connectionStatus);
-  const theme = useThemeStore((state) => state.theme);
+  const resolvedTheme: ResolvedTheme = useThemeStore((state) => state.resolvedTheme);
 
   const [files, setFiles] = useState<AuthFileItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -142,6 +159,7 @@ export function AuthFilesPage() {
   const [deleting, setDeleting] = useState<string | null>(null);
   const [deletingAll, setDeletingAll] = useState(false);
   const [keyStats, setKeyStats] = useState<KeyStats>({ bySource: {}, byAuthIndex: {} });
+  const [usageDetails, setUsageDetails] = useState<UsageDetail[]>([]);
 
   // 详情弹窗相关
   const [detailModalOpen, setDetailModalOpen] = useState(false);
@@ -163,6 +181,7 @@ export function AuthFilesPage() {
   const [savingExcluded, setSavingExcluded] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const loadingKeyStatsRef = useRef(false);
   const excludedUnsupportedRef = useRef(false);
 
   const disableControls = connectionStatus !== 'connected';
@@ -194,13 +213,23 @@ export function AuthFilesPage() {
     }
   }, [t]);
 
-  // 加载 key 统计
+  // 加载 key 统计和 usage 明细（API 层已有60秒超时）
   const loadKeyStats = useCallback(async () => {
+    // 防止重复请求
+    if (loadingKeyStatsRef.current) return;
+    loadingKeyStatsRef.current = true;
     try {
-      const stats = await usageApi.getKeyStats();
+      const usageResponse = await usageApi.getUsage();
+      const usageData = usageResponse?.usage ?? usageResponse;
+      const stats = await usageApi.getKeyStats(usageData);
       setKeyStats(stats);
+      // 收集 usage 明细用于状态栏
+      const details = collectUsageDetails(usageData);
+      setUsageDetails(details);
     } catch {
       // 静默失败
+    } finally {
+      loadingKeyStatsRef.current = false;
     }
   }, []);
 
@@ -236,6 +265,9 @@ export function AuthFilesPage() {
     loadExcluded();
   }, [loadFiles, loadKeyStats, loadExcluded]);
 
+  // 定时刷新状态数据（每240秒）
+  useInterval(loadKeyStats, 240_000);
+
   // 提取所有存在的类型
   const existingTypes = useMemo(() => {
     const types = new Set<string>(['all']);
@@ -246,6 +278,44 @@ export function AuthFilesPage() {
     });
     return Array.from(types);
   }, [files]);
+
+  const excludedProviderLookup = useMemo(() => {
+    const lookup = new Map<string, string>();
+    Object.keys(excluded).forEach((provider) => {
+      const key = provider.trim().toLowerCase();
+      if (key && !lookup.has(key)) {
+        lookup.set(key, provider);
+      }
+    });
+    return lookup;
+  }, [excluded]);
+
+  const providerOptions = useMemo(() => {
+    const extraProviders = new Set<string>();
+
+    Object.keys(excluded).forEach((provider) => {
+      extraProviders.add(provider);
+    });
+    files.forEach((file) => {
+      if (typeof file.type === 'string') {
+        extraProviders.add(file.type);
+      }
+      if (typeof file.provider === 'string') {
+        extraProviders.add(file.provider);
+      }
+    });
+
+    const normalizedExtras = Array.from(extraProviders)
+      .map((value) => value.trim())
+      .filter((value) => value && !OAUTH_PROVIDER_EXCLUDES.has(value.toLowerCase()));
+
+    const baseSet = new Set(OAUTH_PROVIDER_PRESETS.map((value) => value.toLowerCase()));
+    const extraList = normalizedExtras
+      .filter((value) => !baseSet.has(value.toLowerCase()))
+      .sort((a, b) => a.localeCompare(b));
+
+    return [...OAUTH_PROVIDER_PRESETS, ...extraList];
+  }, [excluded, files]);
 
   // 过滤和搜索
   const filtered = useMemo(() => {
@@ -488,14 +558,19 @@ export function AuthFilesPage() {
   // 获取类型颜色
   const getTypeColor = (type: string): ThemeColors => {
     const set = TYPE_COLORS[type] || TYPE_COLORS.unknown;
-    return theme === 'dark' && set.dark ? set.dark : set.light;
+    return resolvedTheme === 'dark' && set.dark ? set.dark : set.light;
   };
 
   // OAuth 排除相关方法
   const openExcludedModal = (provider?: string) => {
-    const models = provider ? excluded[provider] : [];
+    const normalizedProvider = (provider || '').trim();
+    const fallbackProvider = normalizedProvider || (filter !== 'all' ? String(filter) : '');
+    const lookupKey = fallbackProvider
+      ? excludedProviderLookup.get(fallbackProvider.toLowerCase())
+      : undefined;
+    const models = lookupKey ? excluded[lookupKey] : [];
     setExcludedForm({
-      provider: provider || '',
+      provider: lookupKey || fallbackProvider,
       modelsText: Array.isArray(models) ? models.join('\n') : ''
     });
     setExcludedModalOpen(true);
@@ -547,7 +622,7 @@ export function AuthFilesPage() {
       {existingTypes.map((type) => {
         const isActive = filter === type;
         const color = type === 'all' ? { bg: 'var(--bg-tertiary)', text: 'var(--text-primary)' } : getTypeColor(type);
-        const activeTextColor = theme === 'dark' ? '#111827' : '#fff';
+        const activeTextColor = resolvedTheme === 'dark' ? '#111827' : '#fff';
         return (
           <button
             key={type}
@@ -568,6 +643,65 @@ export function AuthFilesPage() {
       })}
     </div>
   );
+
+  // 预计算所有认证文件的状态栏数据（避免每次渲染重复计算）
+  const statusBarCache = useMemo(() => {
+    const cache = new Map<string, ReturnType<typeof calculateStatusBarData>>();
+
+    files.forEach((file) => {
+      const rawAuthIndex = file['auth_index'] ?? file.authIndex;
+      const authIndexKey = normalizeAuthIndexValue(rawAuthIndex);
+
+      if (authIndexKey) {
+        // 过滤出属于该认证文件的 usage 明细
+        const filteredDetails = usageDetails.filter((detail) => {
+          const detailAuthIndex = normalizeAuthIndexValue(detail.auth_index);
+          return detailAuthIndex !== null && detailAuthIndex === authIndexKey;
+        });
+        cache.set(authIndexKey, calculateStatusBarData(filteredDetails));
+      }
+    });
+
+    return cache;
+  }, [usageDetails, files]);
+
+  // 渲染状态监测栏
+  const renderStatusBar = (item: AuthFileItem) => {
+    // 认证文件使用 authIndex 来匹配 usage 数据
+    const rawAuthIndex = item['auth_index'] ?? item.authIndex;
+    const authIndexKey = normalizeAuthIndexValue(rawAuthIndex);
+
+    const statusData = (authIndexKey && statusBarCache.get(authIndexKey)) || calculateStatusBarData([]);
+    const hasData = statusData.totalSuccess + statusData.totalFailure > 0;
+    const rateClass = !hasData
+      ? ''
+      : statusData.successRate >= 90
+        ? styles.statusRateHigh
+        : statusData.successRate >= 50
+          ? styles.statusRateMedium
+          : styles.statusRateLow;
+
+    return (
+      <div className={styles.statusBar}>
+        <div className={styles.statusBlocks}>
+          {statusData.blocks.map((state, idx) => {
+            const blockClass =
+              state === 'success'
+                ? styles.statusBlockSuccess
+                : state === 'failure'
+                  ? styles.statusBlockFailure
+                  : state === 'mixed'
+                    ? styles.statusBlockMixed
+                    : styles.statusBlockIdle;
+            return <div key={idx} className={`${styles.statusBlock} ${blockClass}`} />;
+          })}
+        </div>
+        <span className={`${styles.statusRate} ${rateClass}`}>
+          {hasData ? `${statusData.successRate.toFixed(1)}%` : '--'}
+        </span>
+      </div>
+    );
+  };
 
   // 渲染单个认证文件卡片
   const renderFileCard = (item: AuthFileItem) => {
@@ -604,6 +738,9 @@ export function AuthFilesPage() {
             {t('stats.failure')}: {fileStats.failure}
           </span>
         </div>
+
+        {/* 状态监测栏 */}
+        {renderStatusBar(item)}
 
         <div className={styles.cardActions}>
           {isRuntimeOnly ? (
@@ -931,12 +1068,41 @@ export function AuthFilesPage() {
           </>
         }
       >
-        <Input
-          label={t('oauth_excluded.provider_label')}
-          placeholder={t('oauth_excluded.provider_placeholder')}
-          value={excludedForm.provider}
-          onChange={(e) => setExcludedForm((prev) => ({ ...prev, provider: e.target.value }))}
-        />
+        <div className={styles.providerField}>
+          <Input
+            id="oauth-excluded-provider"
+            list="oauth-excluded-provider-options"
+            label={t('oauth_excluded.provider_label')}
+            hint={t('oauth_excluded.provider_hint')}
+            placeholder={t('oauth_excluded.provider_placeholder')}
+            value={excludedForm.provider}
+            onChange={(e) => setExcludedForm((prev) => ({ ...prev, provider: e.target.value }))}
+          />
+          <datalist id="oauth-excluded-provider-options">
+            {providerOptions.map((provider) => (
+              <option key={provider} value={provider} />
+            ))}
+          </datalist>
+          {providerOptions.length > 0 && (
+            <div className={styles.providerTagList}>
+              {providerOptions.map((provider) => {
+                const isActive =
+                  excludedForm.provider.trim().toLowerCase() === provider.toLowerCase();
+                return (
+                  <button
+                    key={provider}
+                    type="button"
+                    className={`${styles.providerTag} ${isActive ? styles.providerTagActive : ''}`}
+                    onClick={() => setExcludedForm((prev) => ({ ...prev, provider }))}
+                    disabled={savingExcluded}
+                  >
+                    {getTypeLabel(provider)}
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </div>
         <div className={styles.formGroup}>
           <label>{t('oauth_excluded.models_label')}</label>
           <textarea

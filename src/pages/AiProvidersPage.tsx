@@ -1,5 +1,6 @@
-import { Fragment, useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
+import { useInterval } from '@/hooks/useInterval';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
@@ -9,8 +10,13 @@ import { HeaderInputList } from '@/components/ui/HeaderInputList';
 import { ModelInputList, modelsToEntries, entriesToModels } from '@/components/ui/ModelInputList';
 import { ToggleSwitch } from '@/components/ui/ToggleSwitch';
 import { IconCheck, IconX } from '@/components/ui/icons';
-import { useAuthStore, useConfigStore, useNotificationStore } from '@/stores';
+import { useAuthStore, useConfigStore, useNotificationStore, useThemeStore } from '@/stores';
 import { ampcodeApi, modelsApi, providersApi, usageApi } from '@/services/api';
+import iconGemini from '@/assets/icons/gemini.svg';
+import iconOpenaiLight from '@/assets/icons/openai-light.svg';
+import iconOpenaiDark from '@/assets/icons/openai-dark.svg';
+import iconClaude from '@/assets/icons/claude.svg';
+import iconAmp from '@/assets/icons/amp.svg';
 import type {
   GeminiKeyConfig,
   ProviderKeyConfig,
@@ -19,7 +25,8 @@ import type {
   AmpcodeConfig,
   AmpcodeModelMapping,
 } from '@/types';
-import type { KeyStats, KeyStatBucket } from '@/utils/usage';
+import type { KeyStats, KeyStatBucket, UsageDetail } from '@/utils/usage';
+import { collectUsageDetails, calculateStatusBarData } from '@/utils/usage';
 import type { ModelInfo } from '@/utils/models';
 import { headersToEntries, buildHeaderObject, type HeaderEntry } from '@/utils/headers';
 import { maskApiKey } from '@/utils/format';
@@ -181,6 +188,7 @@ const buildAmpcodeFormState = (ampcode?: AmpcodeConfig | null): AmpcodeFormState
 export function AiProvidersPage() {
   const { t } = useTranslation();
   const { showNotification } = useNotificationStore();
+  const { theme } = useThemeStore();
   const connectionStatus = useAuthStore((state) => state.connectionStatus);
 
   const config = useConfigStore((state) => state.config);
@@ -196,6 +204,8 @@ export function AiProvidersPage() {
   const [claudeConfigs, setClaudeConfigs] = useState<ProviderKeyConfig[]>([]);
   const [openaiProviders, setOpenaiProviders] = useState<OpenAIProviderConfig[]>([]);
   const [keyStats, setKeyStats] = useState<KeyStats>({ bySource: {}, byAuthIndex: {} });
+  const [usageDetails, setUsageDetails] = useState<UsageDetail[]>([]);
+  const loadingKeyStatsRef = useRef(false);
 
   const [modal, setModal] = useState<ProviderModal | null>(null);
 
@@ -267,13 +277,23 @@ export function AiProvidersPage() {
     [openaiForm.modelEntries]
   );
 
-  // 加载 key 统计
+  // 加载 key 统计和 usage 明细（API 层已有60秒超时）
   const loadKeyStats = useCallback(async () => {
+    // 防止重复请求
+    if (loadingKeyStatsRef.current) return;
+    loadingKeyStatsRef.current = true;
     try {
-      const stats = await usageApi.getKeyStats();
+      const usageResponse = await usageApi.getUsage();
+      const usageData = usageResponse?.usage ?? usageResponse;
+      const stats = await usageApi.getKeyStats(usageData);
       setKeyStats(stats);
+      // 收集 usage 明细用于状态栏
+      const details = collectUsageDetails(usageData);
+      setUsageDetails(details);
     } catch {
       // 静默失败
+    } finally {
+      loadingKeyStatsRef.current = false;
     }
   }, []);
 
@@ -304,6 +324,9 @@ export function AiProvidersPage() {
     loadConfigs();
     loadKeyStats();
   }, [loadKeyStats]);
+
+  // 定时刷新状态数据（每240秒）
+  useInterval(loadKeyStats, 240_000);
 
   useEffect(() => {
     if (config?.geminiApiKeys) setGeminiKeys(config.geminiApiKeys);
@@ -897,9 +920,10 @@ export function AiProvidersPage() {
   };
 
   const saveProvider = async (type: 'codex' | 'claude') => {
-    const baseUrl = (providerForm.baseUrl ?? '').trim();
-    if (!baseUrl) {
-      showNotification(t('codex_base_url_required'), 'error');
+    const trimmedBaseUrl = (providerForm.baseUrl ?? '').trim();
+    const baseUrl = trimmedBaseUrl || undefined;
+    if (type === 'codex' && !baseUrl) {
+      showNotification(t('notification.codex_base_url_required'), 'error');
       return;
     }
 
@@ -1083,6 +1107,108 @@ export function AiProvidersPage() {
     );
   };
 
+  // 预计算所有 apiKey 的状态栏数据（避免每次渲染重复计算）
+  const statusBarCache = useMemo(() => {
+    const cache = new Map<string, ReturnType<typeof calculateStatusBarData>>();
+
+    // 收集所有需要计算的 apiKey
+    const allApiKeys = new Set<string>();
+    geminiKeys.forEach((k) => k.apiKey && allApiKeys.add(k.apiKey));
+    codexConfigs.forEach((k) => k.apiKey && allApiKeys.add(k.apiKey));
+    claudeConfigs.forEach((k) => k.apiKey && allApiKeys.add(k.apiKey));
+    openaiProviders.forEach((p) => {
+      (p.apiKeyEntries || []).forEach((e) => e.apiKey && allApiKeys.add(e.apiKey));
+    });
+
+    // 预计算每个 apiKey 的状态数据
+    allApiKeys.forEach((apiKey) => {
+      cache.set(apiKey, calculateStatusBarData(usageDetails, apiKey));
+    });
+
+    return cache;
+  }, [usageDetails, geminiKeys, codexConfigs, claudeConfigs, openaiProviders]);
+
+  // 预计算 OpenAI 提供商的汇总状态栏数据
+  const openaiStatusBarCache = useMemo(() => {
+    const cache = new Map<string, ReturnType<typeof calculateStatusBarData>>();
+
+    openaiProviders.forEach((provider) => {
+      const allKeys = (provider.apiKeyEntries || []).map((e) => e.apiKey).filter(Boolean);
+      const filteredDetails = usageDetails.filter((detail) => allKeys.includes(detail.source));
+      cache.set(provider.name, calculateStatusBarData(filteredDetails));
+    });
+
+    return cache;
+  }, [usageDetails, openaiProviders]);
+
+  // 渲染状态监测栏
+  const renderStatusBar = (apiKey: string) => {
+    const statusData = statusBarCache.get(apiKey) || calculateStatusBarData([], apiKey);
+    const hasData = statusData.totalSuccess + statusData.totalFailure > 0;
+    const rateClass = !hasData
+      ? ''
+      : statusData.successRate >= 90
+        ? styles.statusRateHigh
+        : statusData.successRate >= 50
+          ? styles.statusRateMedium
+          : styles.statusRateLow;
+
+    return (
+      <div className={styles.statusBar}>
+        <div className={styles.statusBlocks}>
+          {statusData.blocks.map((state, idx) => {
+            const blockClass =
+              state === 'success'
+                ? styles.statusBlockSuccess
+                : state === 'failure'
+                  ? styles.statusBlockFailure
+                  : state === 'mixed'
+                    ? styles.statusBlockMixed
+                    : styles.statusBlockIdle;
+            return <div key={idx} className={`${styles.statusBlock} ${blockClass}`} />;
+          })}
+        </div>
+        <span className={`${styles.statusRate} ${rateClass}`}>
+          {hasData ? `${statusData.successRate.toFixed(1)}%` : '--'}
+        </span>
+      </div>
+    );
+  };
+
+  // 渲染 OpenAI 提供商的状态栏（汇总多个 apiKey）
+  const renderOpenAIStatusBar = (providerName: string) => {
+    const statusData = openaiStatusBarCache.get(providerName) || calculateStatusBarData([]);
+    const hasData = statusData.totalSuccess + statusData.totalFailure > 0;
+    const rateClass = !hasData
+      ? ''
+      : statusData.successRate >= 90
+        ? styles.statusRateHigh
+        : statusData.successRate >= 50
+          ? styles.statusRateMedium
+          : styles.statusRateLow;
+
+    return (
+      <div className={styles.statusBar}>
+        <div className={styles.statusBlocks}>
+          {statusData.blocks.map((state, idx) => {
+            const blockClass =
+              state === 'success'
+                ? styles.statusBlockSuccess
+                : state === 'failure'
+                  ? styles.statusBlockFailure
+                  : state === 'mixed'
+                    ? styles.statusBlockMixed
+                    : styles.statusBlockIdle;
+            return <div key={idx} className={`${styles.statusBlock} ${blockClass}`} />;
+          })}
+        </div>
+        <span className={`${styles.statusRate} ${rateClass}`}>
+          {hasData ? `${statusData.successRate.toFixed(1)}%` : '--'}
+        </span>
+      </div>
+    );
+  };
+
   const renderList = <T,>(
     items: T[],
     keyField: (item: T) => string,
@@ -1158,7 +1284,12 @@ export function AiProvidersPage() {
         {error && <div className="error-box">{error}</div>}
 
         <Card
-          title={t('ai_providers.gemini_title')}
+          title={
+            <span className={styles.cardTitle}>
+              <img src={iconGemini} alt="" className={styles.cardTitleIcon} />
+              {t('ai_providers.gemini_title')}
+            </span>
+          }
           extra={
             <Button
               size="sm"
@@ -1242,6 +1373,8 @@ export function AiProvidersPage() {
                       {t('stats.failure')}: {stats.failure}
                     </span>
                   </div>
+                  {/* 状态监测栏 */}
+                  {renderStatusBar(item.apiKey)}
                 </Fragment>
               );
             },
@@ -1264,7 +1397,12 @@ export function AiProvidersPage() {
         </Card>
 
         <Card
-          title={t('ai_providers.codex_title')}
+          title={
+            <span className={styles.cardTitle}>
+              <img src={theme === 'dark' ? iconOpenaiDark : iconOpenaiLight} alt="" className={styles.cardTitleIcon} />
+              {t('ai_providers.codex_title')}
+            </span>
+          }
           extra={
             <Button
               size="sm"
@@ -1353,6 +1491,8 @@ export function AiProvidersPage() {
                       {t('stats.failure')}: {stats.failure}
                     </span>
                   </div>
+                  {/* 状态监测栏 */}
+                  {renderStatusBar(item.apiKey)}
                 </Fragment>
               );
             },
@@ -1375,7 +1515,12 @@ export function AiProvidersPage() {
         </Card>
 
         <Card
-          title={t('ai_providers.claude_title')}
+          title={
+            <span className={styles.cardTitle}>
+              <img src={iconClaude} alt="" className={styles.cardTitleIcon} />
+              {t('ai_providers.claude_title')}
+            </span>
+          }
           extra={
             <Button
               size="sm"
@@ -1480,6 +1625,8 @@ export function AiProvidersPage() {
                       {t('stats.failure')}: {stats.failure}
                     </span>
                   </div>
+                  {/* 状态监测栏 */}
+                  {renderStatusBar(item.apiKey)}
                 </Fragment>
               );
             },
@@ -1502,7 +1649,12 @@ export function AiProvidersPage() {
         </Card>
 
         <Card
-          title={t('ai_providers.ampcode_title')}
+          title={
+            <span className={styles.cardTitle}>
+              <img src={iconAmp} alt="" className={styles.cardTitleIcon} />
+              {t('ai_providers.ampcode_title')}
+            </span>
+          }
           extra={
             <Button
               size="sm"
@@ -1575,7 +1727,12 @@ export function AiProvidersPage() {
         </Card>
 
         <Card
-          title={t('ai_providers.openai_title')}
+          title={
+            <span className={styles.cardTitle}>
+              <img src={theme === 'dark' ? iconOpenaiDark : iconOpenaiLight} alt="" className={styles.cardTitleIcon} />
+              {t('ai_providers.openai_title')}
+            </span>
+          }
           extra={
             <Button
               size="sm"
@@ -1689,6 +1846,8 @@ export function AiProvidersPage() {
                       {t('stats.failure')}: {stats.failure}
                     </span>
                   </div>
+                  {/* 状态监测栏（汇总） */}
+                  {renderOpenAIStatusBar(item.name)}
                 </Fragment>
               );
             },
