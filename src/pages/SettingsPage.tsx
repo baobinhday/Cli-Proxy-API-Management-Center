@@ -17,9 +17,7 @@ type PendingKey =
   | 'switchPreview'
   | 'usage'
   | 'loggingToFile'
-  | 'wsAuth'
-  | 'readOnly'
-  | 'syncInterval';
+  | 'wsAuth';
 
 export function SettingsPage() {
   const { t } = useTranslation();
@@ -33,7 +31,6 @@ export function SettingsPage() {
   const [loading, setLoading] = useState(true);
   const [proxyValue, setProxyValue] = useState('');
   const [retryValue, setRetryValue] = useState(0);
-  const [syncIntervalValue, setSyncIntervalValue] = useState(0);
   const [pending, setPending] = useState<Record<PendingKey, boolean>>({} as Record<PendingKey, boolean>);
   const [error, setError] = useState('');
 
@@ -47,7 +44,6 @@ export function SettingsPage() {
         const data = (await fetchConfig()) as Config;
         setProxyValue(data?.proxyUrl ?? '');
         setRetryValue(typeof data?.requestRetry === 'number' ? data.requestRetry : 0);
-        setSyncIntervalValue(data?.syncIntervalMinutes ?? 0);
       } catch (err: any) {
         setError(err?.message || t('notification.refresh_failed'));
       } finally {
@@ -64,11 +60,8 @@ export function SettingsPage() {
       if (typeof config.requestRetry === 'number') {
         setRetryValue(config.requestRetry);
       }
-      if (typeof config.syncIntervalMinutes === 'number') {
-        setSyncIntervalValue(config.syncIntervalMinutes);
-      }
     }
-  }, [config?.proxyUrl, config?.requestRetry, config?.syncIntervalMinutes]);
+  }, [config?.proxyUrl, config?.requestRetry]);
 
   const setPendingFlag = (key: PendingKey, value: boolean) => {
     setPending((prev) => ({ ...prev, [key]: value }));
@@ -76,7 +69,7 @@ export function SettingsPage() {
 
   const toggleSetting = async (
     section: PendingKey,
-    rawKey: 'debug' | 'usage-statistics-enabled' | 'logging-to-file' | 'ws-auth' | 'read-only',
+    rawKey: 'debug' | 'usage-statistics-enabled' | 'logging-to-file' | 'ws-auth',
     value: boolean,
     updater: (val: boolean) => Promise<any>,
     successMessage: string
@@ -91,8 +84,6 @@ export function SettingsPage() {
           return config?.loggingToFile ?? false;
         case 'ws-auth':
           return config?.wsAuth ?? false;
-        case 'read-only':
-          return config?.readOnly ?? false;
         default:
           return false;
       }
@@ -168,29 +159,6 @@ export function SettingsPage() {
       showNotification(`${t('notification.update_failed')}: ${err?.message || ''}`, 'error');
     } finally {
       setPendingFlag('retry', false);
-    }
-  };
-
-  const handleSyncIntervalUpdate = async () => {
-    const previous = config?.syncIntervalMinutes ?? 0;
-    const parsed = Number(syncIntervalValue);
-    if (!Number.isFinite(parsed) || parsed < 0) {
-      showNotification(t('login.error_invalid'), 'error');
-      setSyncIntervalValue(previous);
-      return;
-    }
-    setPendingFlag('syncInterval', true);
-    updateConfigValue('sync-interval-minutes', parsed);
-    try {
-      await configApi.updateSyncInterval(parsed);
-      clearCache('sync-interval-minutes');
-      showNotification(t('notification.storage_sync_interval_updated'), 'success');
-    } catch (err: any) {
-      setSyncIntervalValue(previous);
-      updateConfigValue('sync-interval-minutes', previous);
-      showNotification(`${t('notification.update_failed')}: ${err?.message || ''}`, 'error');
-    } finally {
-      setPendingFlag('syncInterval', false);
     }
   };
 
@@ -300,49 +268,6 @@ export function SettingsPage() {
           >
             {t('basic_settings.retry_update')}
           </Button>
-        </div>
-      </Card>
-
-      <Card title={t('basic_settings.storage_title')}>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-          <ToggleSwitch
-            label={t('basic_settings.storage_read_only_enable')}
-            checked={config?.readOnly ?? false}
-            disabled={disableControls || pending.readOnly || loading}
-            onChange={(value) =>
-              toggleSetting(
-                'readOnly',
-                'read-only',
-                value,
-                configApi.updateReadOnly,
-                t('notification.storage_read_only_updated')
-              )
-            }
-          />
-
-          {config?.readOnly && (
-            <div className={styles.retryRow}>
-              <Input
-                label={t('basic_settings.storage_interval_pull_label')}
-                type="number"
-                inputMode="numeric"
-                min={0}
-                step={1}
-                value={syncIntervalValue}
-                onChange={(e) => setSyncIntervalValue(Number(e.target.value))}
-                disabled={disableControls || loading}
-                className={styles.retryInput}
-              />
-              <Button
-                className={styles.retryButton}
-                onClick={handleSyncIntervalUpdate}
-                loading={pending.syncInterval}
-                disabled={disableControls || loading}
-              >
-                {t('common.update')}
-              </Button>
-            </div>
-          )}
         </div>
       </Card>
 
