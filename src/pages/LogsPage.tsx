@@ -859,7 +859,9 @@ export function LogsPage() {
                   <div className={styles.loadMoreBanner}>
                     <span>{t('logs.load_more_hint')}</span>
                     <div className={styles.loadMoreStats}>
-                      <span>{t('logs.loaded_lines', { count: parsedVisibleLines.length })}</span>
+                      <span>
+                        {t('logs.loaded_lines', { count: parsedVisibleLines.length })}
+                      </span>
                       {removedCount > 0 && (
                         <span className={styles.loadMoreCount}>
                           {t('logs.filtered_lines', { count: removedCount })}
@@ -999,9 +1001,7 @@ export function LogsPage() {
 
               {requestLogEnabled && (
                 <div>
-                  <div className="status-badge warning">
-                    {t('logs.error_logs_request_log_enabled')}
-                  </div>
+                  <div className="status-badge warning">{t('logs.error_logs_request_log_enabled')}</div>
                 </div>
               )}
 
@@ -1049,11 +1049,7 @@ export function LogsPage() {
         title={t('logs.request_log_download_title')}
         footer={
           <>
-            <Button
-              variant="secondary"
-              onClick={closeRequestLogModal}
-              disabled={requestLogDownloading}
-            >
+            <Button variant="secondary" onClick={closeRequestLogModal} disabled={requestLogDownloading}>
               {t('common.cancel')}
             </Button>
             <Button
