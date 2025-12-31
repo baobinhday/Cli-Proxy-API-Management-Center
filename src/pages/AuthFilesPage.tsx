@@ -83,7 +83,6 @@ interface ExcludedFormState {
   provider: string;
   modelsText: string;
 }
-
 // 标准化 auth_index 值（与 usage.ts 中的 normalizeAuthIndex 保持一致）
 function normalizeAuthIndexValue(value: unknown): string | null {
   if (typeof value === 'number' && Number.isFinite(value)) {
@@ -278,6 +277,7 @@ export function AuthFilesPage() {
     });
     return Array.from(types);
   }, [files]);
+
 
   const excludedProviderLookup = useMemo(() => {
     const lookup = new Map<string, string>();
@@ -705,7 +705,7 @@ export function AuthFilesPage() {
 
   // 渲染单个认证文件卡片
   const renderFileCard = (item: AuthFileItem) => {
-      const fileStats = resolveAuthFileStats(item, keyStats);
+    const fileStats = resolveAuthFileStats(item, keyStats);
     const isRuntimeOnly = isRuntimeOnlyAuthFile(item);
     const typeColor = getTypeColor(item.type || 'unknown');
 

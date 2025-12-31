@@ -7,6 +7,7 @@ import { ApiKeysPage } from '@/pages/ApiKeysPage';
 import { AiProvidersPage } from '@/pages/AiProvidersPage';
 import { AuthFilesPage } from '@/pages/AuthFilesPage';
 import { OAuthPage } from '@/pages/OAuthPage';
+import { QuotaPage } from '@/pages/QuotaPage';
 import { UsagePage } from '@/pages/UsagePage';
 import { ConfigPage } from '@/pages/ConfigPage';
 import { LogsPage } from '@/pages/LogsPage';
@@ -42,6 +43,10 @@ function App() {
     setLanguage(language);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []); // 仅用于首屏同步 i18n 语言
+
+  useEffect(() => {
+    document.documentElement.lang = language;
+  }, [language]);
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -84,6 +89,7 @@ function App() {
           <Route path="ai-providers" element={<AiProvidersPage />} />
           <Route path="auth-files" element={<AuthFilesPage />} />
           <Route path="oauth" element={<OAuthPage />} />
+          <Route path="quota" element={<QuotaPage />} />
           <Route path="usage" element={<UsagePage />} />
           <Route path="config" element={<ConfigPage />} />
           <Route path="logs" element={<LogsPage />} />
