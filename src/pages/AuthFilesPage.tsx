@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useInterval } from '@/hooks/useInterval';
+import { useHeaderRefresh } from '@/hooks/useHeaderRefresh';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
@@ -78,6 +79,12 @@ const OAUTH_PROVIDER_PRESETS = [
 ];
 
 const OAUTH_PROVIDER_EXCLUDES = new Set(['all', 'unknown', 'empty']);
+const MIN_CARD_PAGE_SIZE = 3;
+const MAX_CARD_PAGE_SIZE = 30;
+const MAX_AUTH_FILE_SIZE = 50 * 1024;
+
+const clampCardPageSize = (value: number) =>
+  Math.min(MAX_CARD_PAGE_SIZE, Math.max(MIN_CARD_PAGE_SIZE, Math.round(value)));
 
 interface ExcludedFormState {
   provider: string;
@@ -185,6 +192,13 @@ export function AuthFilesPage() {
 
   const disableControls = connectionStatus !== 'connected';
 
+  const handlePageSizeChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const value = event.currentTarget.valueAsNumber;
+    if (!Number.isFinite(value)) return;
+    setPageSize(clampCardPageSize(value));
+    setPage(1);
+  };
+
   // 格式化修改时间
   const formatModified = (item: AuthFileItem): string => {
     const raw = item['modtime'] ?? item.modified;
@@ -257,6 +271,12 @@ export function AuthFilesPage() {
       // 静默失败
     }
   }, [showNotification, t]);
+
+  const handleHeaderRefresh = useCallback(async () => {
+    await Promise.all([loadFiles(), loadKeyStats(), loadExcluded()]);
+  }, [loadFiles, loadKeyStats, loadExcluded]);
+
+  useHeaderRefresh(handleHeaderRefresh);
 
   useEffect(() => {
     loadFiles();
@@ -337,9 +357,6 @@ export function AuthFilesPage() {
   const start = (currentPage - 1) * pageSize;
   const pageItems = filtered.slice(start, start + pageSize);
 
-  // 统计信息
-  const totalSize = useMemo(() => files.reduce((sum, item) => sum + (item.size || 0), 0), [files]);
-
   // 点击上传
   const handleUploadClick = () => {
     fileInputRef.current?.click();
@@ -353,17 +370,28 @@ export function AuthFilesPage() {
     const filesToUpload = Array.from(fileList);
     const validFiles: File[] = [];
     const invalidFiles: string[] = [];
+    const oversizedFiles: string[] = [];
 
     filesToUpload.forEach((file) => {
-      if (file.name.endsWith('.json')) {
-        validFiles.push(file);
-      } else {
+      if (!file.name.endsWith('.json')) {
         invalidFiles.push(file.name);
+        return;
       }
+      if (file.size > MAX_AUTH_FILE_SIZE) {
+        oversizedFiles.push(file.name);
+        return;
+      }
+      validFiles.push(file);
     });
 
     if (invalidFiles.length > 0) {
       showNotification(t('auth_files.upload_error_json'), 'error');
+    }
+    if (oversizedFiles.length > 0) {
+      showNotification(
+        t('auth_files.upload_error_size', { maxSize: formatFileSize(MAX_AUTH_FILE_SIZE) }),
+        'error'
+      );
     }
 
     if (validFiles.length === 0) {
@@ -707,6 +735,8 @@ export function AuthFilesPage() {
   const renderFileCard = (item: AuthFileItem) => {
     const fileStats = resolveAuthFileStats(item, keyStats);
     const isRuntimeOnly = isRuntimeOnlyAuthFile(item);
+    const isAistudio = (item.type || '').toLowerCase() === 'aistudio';
+    const showModelsButton = !isRuntimeOnly || isAistudio;
     const typeColor = getTypeColor(item.type || 'unknown');
 
     return (
@@ -743,20 +773,20 @@ export function AuthFilesPage() {
         {renderStatusBar(item)}
 
         <div className={styles.cardActions}>
-          {isRuntimeOnly ? (
-            <div className={styles.virtualBadge}>{t('auth_files.type_virtual') || '虚拟认证文件'}</div>
-          ) : (
+          {showModelsButton && (
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => showModels(item)}
+              className={styles.iconButton}
+              title={t('auth_files.models_button', { defaultValue: '模型' })}
+              disabled={disableControls}
+            >
+              <IconBot className={styles.actionIcon} size={16} />
+            </Button>
+          )}
+          {!isRuntimeOnly && (
             <>
-              <Button
-                variant="secondary"
-                size="sm"
-                onClick={() => showModels(item)}
-                className={styles.iconButton}
-                title={t('auth_files.models_button', { defaultValue: '模型' })}
-                disabled={disableControls}
-              >
-                <IconBot className={styles.actionIcon} size={16} />
-              </Button>
               <Button
                 variant="secondary"
                 size="sm"
@@ -793,10 +823,20 @@ export function AuthFilesPage() {
               </Button>
             </>
           )}
+          {isRuntimeOnly && (
+            <div className={styles.virtualBadge}>{t('auth_files.type_virtual') || '虚拟认证文件'}</div>
+          )}
         </div>
       </div>
     );
   };
+
+  const titleNode = (
+    <div className={styles.titleWrapper}>
+      <span>{t('auth_files.title_section')}</span>
+      {files.length > 0 && <span className={styles.countBadge}>{files.length}</span>}
+    </div>
+  );
 
   return (
     <div className={styles.container}>
@@ -806,10 +846,15 @@ export function AuthFilesPage() {
       </div>
 
       <Card
-        title={t('auth_files.title_section')}
+        title={titleNode}
         extra={
           <div className={styles.headerActions}>
-            <Button variant="secondary" size="sm" onClick={() => { loadFiles(); loadKeyStats(); }} disabled={loading}>
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={handleHeaderRefresh}
+              disabled={loading}
+            >
               {t('common.refresh')}
             </Button>
             <Button
@@ -855,26 +900,15 @@ export function AuthFilesPage() {
             </div>
             <div className={styles.filterItem}>
               <label>{t('auth_files.page_size_label')}</label>
-              <select
+              <input
                 className={styles.pageSizeSelect}
+                type="number"
+                min={MIN_CARD_PAGE_SIZE}
+                max={MAX_CARD_PAGE_SIZE}
+                step={1}
                 value={pageSize}
-                onChange={(e) => {
-                  setPageSize(Number(e.target.value) || 9);
-                  setPage(1);
-                }}
-              >
-                <option value={6}>6</option>
-                <option value={9}>9</option>
-                <option value={12}>12</option>
-                <option value={18}>18</option>
-                <option value={24}>24</option>
-              </select>
-            </div>
-            <div className={styles.filterItem}>
-              <label>{t('common.info')}</label>
-              <div className={styles.statsInfo}>
-                {files.length} {t('auth_files.files_count')} · {formatFileSize(totalSize)}
-              </div>
+                onChange={handlePageSizeChange}
+              />
             </div>
           </div>
         </div>
