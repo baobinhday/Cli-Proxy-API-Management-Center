@@ -17,7 +17,10 @@ type PendingKey =
   | 'switchPreview'
   | 'usage'
   | 'loggingToFile'
+  | 'logsMaxSize'
   | 'wsAuth'
+  | 'forceModelPrefix'
+  | 'routingStrategy'
   | 'readOnly'
   | 'syncInterval';
 
@@ -33,6 +36,8 @@ export function SettingsPage() {
   const [loading, setLoading] = useState(true);
   const [proxyValue, setProxyValue] = useState('');
   const [retryValue, setRetryValue] = useState(0);
+  const [logsMaxTotalSizeMb, setLogsMaxTotalSizeMb] = useState(0);
+  const [routingStrategy, setRoutingStrategy] = useState('round-robin');
   const [syncIntervalValue, setSyncIntervalValue] = useState(0);
   const [pending, setPending] = useState<Record<PendingKey, boolean>>({} as Record<PendingKey, boolean>);
   const [error, setError] = useState('');
@@ -44,9 +49,15 @@ export function SettingsPage() {
       setLoading(true);
       setError('');
       try {
-        const data = (await fetchConfig()) as Config;
+        const [data, logsSize, routing] = await Promise.all([
+            fetchConfig() as Promise<Config>,
+            configApi.getLogsMaxTotalSizeMb(),
+            configApi.getRoutingStrategy()
+        ]);
         setProxyValue(data?.proxyUrl ?? '');
         setRetryValue(typeof data?.requestRetry === 'number' ? data.requestRetry : 0);
+        setLogsMaxTotalSizeMb(logsSize);
+        setRoutingStrategy(routing);
         setSyncIntervalValue(data?.syncIntervalMinutes ?? 0);
       } catch (err: any) {
         setError(err?.message || t('notification.refresh_failed'));
@@ -64,11 +75,17 @@ export function SettingsPage() {
       if (typeof config.requestRetry === 'number') {
         setRetryValue(config.requestRetry);
       }
+      if (typeof config.logsMaxTotalSizeMb === 'number') {
+        setLogsMaxTotalSizeMb(config.logsMaxTotalSizeMb);
+      }
+      if (config.routingStrategy) {
+        setRoutingStrategy(config.routingStrategy);
+      }
       if (typeof config.syncIntervalMinutes === 'number') {
         setSyncIntervalValue(config.syncIntervalMinutes);
       }
     }
-  }, [config?.proxyUrl, config?.requestRetry, config?.syncIntervalMinutes]);
+  }, [config?.proxyUrl, config?.requestRetry, config?.logsMaxTotalSizeMb, config?.routingStrategy, config?.syncIntervalMinutes]);
 
   const setPendingFlag = (key: PendingKey, value: boolean) => {
     setPending((prev) => ({ ...prev, [key]: value }));
@@ -76,7 +93,7 @@ export function SettingsPage() {
 
   const toggleSetting = async (
     section: PendingKey,
-    rawKey: 'debug' | 'usage-statistics-enabled' | 'logging-to-file' | 'ws-auth' | 'read-only',
+    rawKey: 'debug' | 'usage-statistics-enabled' | 'logging-to-file' | 'ws-auth' | 'force-model-prefix' | 'read-only',
     value: boolean,
     updater: (val: boolean) => Promise<any>,
     successMessage: string
@@ -91,6 +108,8 @@ export function SettingsPage() {
           return config?.loggingToFile ?? false;
         case 'ws-auth':
           return config?.wsAuth ?? false;
+        case 'force-model-prefix':
+          return config?.forceModelPrefix ?? false;
         case 'read-only':
           return config?.readOnly ?? false;
         default:
@@ -168,6 +187,41 @@ export function SettingsPage() {
       showNotification(`${t('notification.update_failed')}: ${err?.message || ''}`, 'error');
     } finally {
       setPendingFlag('retry', false);
+    }
+  };
+
+  const handleLogsMaxTotalSizeUpdate = async () => {
+    setPendingFlag('logsMaxSize', true);
+    updateConfigValue('logs-max-total-size-mb', logsMaxTotalSizeMb);
+    try {
+      await configApi.updateLogsMaxTotalSizeMb(logsMaxTotalSizeMb);
+      clearCache('logs-max-total-size-mb');
+      showNotification(t('notification.logs_max_total_size_updated'), 'success');
+    } catch (err: any) {
+      updateConfigValue('logs-max-total-size-mb', config?.logsMaxTotalSizeMb ?? 0);
+      setLogsMaxTotalSizeMb(config?.logsMaxTotalSizeMb ?? 0);
+      showNotification(`${t('notification.update_failed')}: ${err?.message || ''}`, 'error');
+    } finally {
+      setPendingFlag('logsMaxSize', false);
+    }
+  };
+
+  const handleRoutingStrategyUpdate = async () => {
+    const strategy = routingStrategy;
+    if (!strategy) return;
+    const previous = config?.routingStrategy ?? 'round-robin';
+    setPendingFlag('routingStrategy', true);
+    updateConfigValue('routing/strategy', strategy);
+    try {
+      await configApi.updateRoutingStrategy(strategy);
+      clearCache('routing/strategy');
+      showNotification(t('notification.routing_strategy_updated'), 'success');
+    } catch (err: any) {
+      setRoutingStrategy(previous);
+      updateConfigValue('routing/strategy', previous);
+      showNotification(`${t('notification.update_failed')}: ${err?.message || ''}`, 'error');
+    } finally {
+      setPendingFlag('routingStrategy', false);
     }
   };
 
@@ -258,6 +312,21 @@ export function SettingsPage() {
               )
             }
           />
+
+          <ToggleSwitch
+              label={t('basic_settings.force_model_prefix_enable')}
+              checked={config?.forceModelPrefix ?? false}
+              disabled={disableControls || pending.forceModelPrefix || loading}
+              onChange={(value) =>
+                toggleSetting(
+                  'forceModelPrefix',
+                  'force-model-prefix',
+                  value,
+                  configApi.updateForceModelPrefix,
+                  t('notification.force_model_prefix_updated')
+                )
+              }
+            />
         </div>
       </Card>
 
@@ -299,6 +368,57 @@ export function SettingsPage() {
             disabled={disableControls || loading}
           >
             {t('basic_settings.retry_update')}
+          </Button>
+        </div>
+      </Card>
+
+      <Card title={t('basic_settings.logs_max_total_size_title')}>
+        <div className={`${styles.retryRow} ${styles.retryRowAligned} ${styles.retryRowInputGrow}`}>
+          <Input
+            label={t('basic_settings.logs_max_total_size_label')}
+            hint={t('basic_settings.logs_max_total_size_hint')}
+            type="number"
+            inputMode="numeric"
+            min={0}
+            step={1}
+            value={logsMaxTotalSizeMb}
+            onChange={(e) => setLogsMaxTotalSizeMb(Number(e.target.value))}
+            disabled={disableControls || loading}
+            className={styles.retryInput}
+          />
+          <Button
+            className={styles.retryButton}
+            onClick={handleLogsMaxTotalSizeUpdate}
+            loading={pending.logsMaxSize}
+            disabled={disableControls || loading}
+          >
+            {t('basic_settings.logs_max_total_size_update')}
+          </Button>
+        </div>
+      </Card>
+
+      <Card title={t('basic_settings.routing_title')}>
+        <div className={`${styles.retryRow} ${styles.retryRowAligned} ${styles.retryRowInputGrow}`}>
+          <div className="form-group">
+            <label>{t('basic_settings.routing_strategy_label')}</label>
+            <select
+              className="input"
+              value={routingStrategy}
+              onChange={(e) => setRoutingStrategy(e.target.value)}
+              disabled={disableControls || loading}
+            >
+              <option value="round-robin">{t('basic_settings.routing_strategy_round_robin')}</option>
+              <option value="fill-first">{t('basic_settings.routing_strategy_fill_first')}</option>
+            </select>
+            <div className="hint">{t('basic_settings.routing_strategy_hint')}</div>
+          </div>
+          <Button
+            className={styles.retryButton}
+            onClick={handleRoutingStrategyUpdate}
+            loading={pending.routingStrategy}
+            disabled={disableControls || loading}
+          >
+            {t('basic_settings.routing_strategy_update')}
           </Button>
         </div>
       </Card>

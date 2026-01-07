@@ -38,16 +38,18 @@ const SECTION_KEYS: RawConfigSection[] = [
   'usage-statistics-enabled',
   'request-log',
   'logging-to-file',
+  'logs-max-total-size-mb',
   'ws-auth',
+  'force-model-prefix',
+  'routing/strategy',
   'api-keys',
   'ampcode',
   'gemini-api-key',
   'codex-api-key',
   'claude-api-key',
+  'vertex-api-key',
   'openai-compatibility',
-  'oauth-excluded-models',
-  'read-only',
-  'sync-interval-minutes'
+  'oauth-excluded-models'
 ];
 
 const extractSectionValue = (config: Config | null, section?: RawConfigSection) => {
@@ -67,8 +69,14 @@ const extractSectionValue = (config: Config | null, section?: RawConfigSection) 
       return config.requestLog;
     case 'logging-to-file':
       return config.loggingToFile;
+    case 'logs-max-total-size-mb':
+      return config.logsMaxTotalSizeMb;
     case 'ws-auth':
       return config.wsAuth;
+    case 'force-model-prefix':
+      return config.forceModelPrefix;
+    case 'routing/strategy':
+      return config.routingStrategy;
     case 'api-keys':
       return config.apiKeys;
     case 'ampcode':
@@ -79,14 +87,12 @@ const extractSectionValue = (config: Config | null, section?: RawConfigSection) 
       return config.codexApiKeys;
     case 'claude-api-key':
       return config.claudeApiKeys;
+    case 'vertex-api-key':
+      return config.vertexApiKeys;
     case 'openai-compatibility':
       return config.openaiCompatibility;
     case 'oauth-excluded-models':
       return config.oauthExcludedModels;
-    case 'read-only':
-      return config.readOnly;
-    case 'sync-interval-minutes':
-      return config.syncIntervalMinutes;
     default:
       if (!section) return undefined;
       return config.raw?.[section];
@@ -200,8 +206,17 @@ export const useConfigStore = create<ConfigState>((set, get) => ({
         case 'logging-to-file':
           nextConfig.loggingToFile = value;
           break;
+        case 'logs-max-total-size-mb':
+          nextConfig.logsMaxTotalSizeMb = value;
+          break;
         case 'ws-auth':
           nextConfig.wsAuth = value;
+          break;
+        case 'force-model-prefix':
+          nextConfig.forceModelPrefix = value;
+          break;
+        case 'routing/strategy':
+          nextConfig.routingStrategy = value;
           break;
         case 'api-keys':
           nextConfig.apiKeys = value;
@@ -218,17 +233,14 @@ export const useConfigStore = create<ConfigState>((set, get) => ({
         case 'claude-api-key':
           nextConfig.claudeApiKeys = value;
           break;
+        case 'vertex-api-key':
+          nextConfig.vertexApiKeys = value;
+          break;
         case 'openai-compatibility':
           nextConfig.openaiCompatibility = value;
           break;
         case 'oauth-excluded-models':
           nextConfig.oauthExcludedModels = value;
-          break;
-        case 'read-only':
-          nextConfig.readOnly = value;
-          break;
-        case 'sync-interval-minutes':
-          nextConfig.syncIntervalMinutes = value;
           break;
         default:
           break;
