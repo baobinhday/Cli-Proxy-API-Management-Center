@@ -711,6 +711,20 @@ function PayloadFilterRulesEditor({
         </div>
       ))}
 
+      {rules.length === 0 && (
+        <div
+          style={{
+            border: '1px dashed var(--border-color)',
+            borderRadius: 12,
+            padding: 16,
+            color: 'var(--text-secondary)',
+            textAlign: 'center',
+          }}
+        >
+          {t('config_management.visual.payload_rules.no_rules')}
+        </div>
+      )}
+
       <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
         <Button variant="secondary" size="sm" onClick={addRule} disabled={disabled}>
           {t('config_management.visual.payload_rules.add_rule')}
@@ -876,15 +890,6 @@ export function VisualConfigEditor({ values, disabled = false, onChange }: Visua
               value={values.logsMaxTotalSizeMb}
               onChange={(e) => onChange({ logsMaxTotalSizeMb: e.target.value })}
               disabled={disabled}
-            />
-            <Input
-              label={t('config_management.visual.sections.system.usage_retention_days')}
-              type="number"
-              placeholder="30"
-              value={values.usageRecordsRetentionDays}
-              onChange={(e) => onChange({ usageRecordsRetentionDays: e.target.value })}
-              disabled={disabled}
-              hint={t('config_management.visual.sections.system.usage_retention_hint')}
             />
           </SectionGrid>
         </div>
