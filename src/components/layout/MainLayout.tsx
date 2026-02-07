@@ -35,6 +35,8 @@ import {
 } from '@/stores';
 import { configApi, versionApi } from '@/services/api';
 import { triggerHeaderRefresh } from '@/hooks/useHeaderRefresh';
+import { LANGUAGE_LABEL_KEYS, LANGUAGE_ORDER } from '@/utils/constants';
+import { isSupportedLanguage } from '@/utils/language';
 
 const sidebarIcons: Record<string, ReactNode> = {
   dashboard: <IconLayoutDashboard size={18} />,
@@ -189,17 +191,20 @@ export function MainLayout() {
 
   const theme = useThemeStore((state) => state.theme);
   const cycleTheme = useThemeStore((state) => state.cycleTheme);
-  const toggleLanguage = useLanguageStore((state) => state.toggleLanguage);
+  const language = useLanguageStore((state) => state.language);
+  const setLanguage = useLanguageStore((state) => state.setLanguage);
 
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [checkingVersion, setCheckingVersion] = useState(false);
+  const [languageMenuOpen, setLanguageMenuOpen] = useState(false);
   const [brandExpanded, setBrandExpanded] = useState(true);
   const [requestLogModalOpen, setRequestLogModalOpen] = useState(false);
   const [requestLogDraft, setRequestLogDraft] = useState(false);
   const [requestLogTouched, setRequestLogTouched] = useState(false);
   const [requestLogSaving, setRequestLogSaving] = useState(false);
   const contentRef = useRef<HTMLDivElement | null>(null);
+  const languageMenuRef = useRef<HTMLDivElement | null>(null);
   const brandCollapseTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const headerRef = useRef<HTMLElement | null>(null);
   const versionTapCount = useRef(0);
@@ -299,6 +304,32 @@ export function MainLayout() {
     };
   }, []);
 
+  useEffect(() => {
+    if (!languageMenuOpen) {
+      return;
+    }
+
+    const handlePointerDown = (event: MouseEvent) => {
+      if (!languageMenuRef.current?.contains(event.target as Node)) {
+        setLanguageMenuOpen(false);
+      }
+    };
+
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setLanguageMenuOpen(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handlePointerDown);
+    document.addEventListener('keydown', handleEscape);
+
+    return () => {
+      document.removeEventListener('mousedown', handlePointerDown);
+      document.removeEventListener('keydown', handleEscape);
+    };
+  }, [languageMenuOpen]);
+
   const handleBrandClick = useCallback(() => {
     if (!brandExpanded) {
       setBrandExpanded(true);
@@ -317,6 +348,21 @@ export function MainLayout() {
     setRequestLogDraft(requestLogEnabled);
     setRequestLogModalOpen(true);
   }, [requestLogEnabled]);
+
+  const toggleLanguageMenu = useCallback(() => {
+    setLanguageMenuOpen((prev) => !prev);
+  }, []);
+
+  const handleLanguageSelect = useCallback(
+    (nextLanguage: string) => {
+      if (!isSupportedLanguage(nextLanguage)) {
+        return;
+      }
+      setLanguage(nextLanguage);
+      setLanguageMenuOpen(false);
+    },
+    [setLanguage]
+  );
 
   const handleRequestLogClose = useCallback(() => {
     setRequestLogModalOpen(false);
@@ -566,9 +612,36 @@ export function MainLayout() {
             >
               {headerIcons.update}
             </Button>
-            <Button variant="ghost" size="sm" onClick={toggleLanguage} title={t('language.switch')}>
-              {headerIcons.language}
-            </Button>
+            <div className={`language-menu ${languageMenuOpen ? 'open' : ''}`} ref={languageMenuRef}>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={toggleLanguageMenu}
+                title={t('language.switch')}
+                aria-label={t('language.switch')}
+                aria-haspopup="menu"
+                aria-expanded={languageMenuOpen}
+              >
+                {headerIcons.language}
+              </Button>
+              {languageMenuOpen && (
+                <div className="notification entering language-menu-popover" role="menu" aria-label={t('language.switch')}>
+                  {LANGUAGE_ORDER.map((lang) => (
+                    <button
+                      key={lang}
+                      type="button"
+                      className={`language-menu-option ${language === lang ? 'active' : ''}`}
+                      onClick={() => handleLanguageSelect(lang)}
+                      role="menuitemradio"
+                      aria-checked={language === lang}
+                    >
+                      <span>{t(LANGUAGE_LABEL_KEYS[lang])}</span>
+                      {language === lang ? <span className="language-menu-check">✓</span> : null}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
             <Button variant="ghost" size="sm" onClick={cycleTheme} title={t('theme.switch')}>
               {theme === 'auto'
                 ? headerIcons.autoTheme

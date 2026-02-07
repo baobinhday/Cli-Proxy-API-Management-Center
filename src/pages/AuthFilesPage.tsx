@@ -17,7 +17,6 @@ import {
   IconChevronUp,
   IconDownload,
   IconInfo,
-  IconRefreshCw,
   IconTrash2,
 } from '@/components/ui/icons';
 import type { TFunction } from 'i18next';
@@ -48,6 +47,10 @@ const TYPE_COLORS: Record<string, TypeColorSet> = {
   qwen: {
     light: { bg: '#e8f5e9', text: '#2e7d32' },
     dark: { bg: '#1b5e20', text: '#81c784' },
+  },
+  kimi: {
+    light: { bg: '#fff4e5', text: '#ad6800' },
+    dark: { bg: '#7c4a03', text: '#ffd591' },
   },
   gemini: {
     light: { bg: '#e3f2fd', text: '#1565c0' },
@@ -504,7 +507,7 @@ export function AuthFilesPage() {
     }
   }, []);
 
-  // 加载 OAuth 排除列表
+  // 加载 OAuth 模型禁用
   const loadExcluded = useCallback(async () => {
     try {
       const res = await authFilesApi.getOauthExcludedModels();
@@ -1547,6 +1550,7 @@ export function AuthFilesPage() {
       | { status?: string; error?: string; errorStatus?: number }
       | undefined;
     const quotaStatus = quota?.status ?? 'idle';
+    const canRefreshQuota = !disableControls && !item.disabled;
     const quotaErrorMessage = resolveQuotaErrorMessage(
       t,
       quota?.errorStatus,
@@ -1558,7 +1562,14 @@ export function AuthFilesPage() {
         {quotaStatus === 'loading' ? (
           <div className={styles.quotaMessage}>{t(`${config.i18nPrefix}.loading`)}</div>
         ) : quotaStatus === 'idle' ? (
-          <div className={styles.quotaMessage}>{t(`${config.i18nPrefix}.idle`)}</div>
+          <button
+            type="button"
+            className={`${styles.quotaMessage} ${styles.quotaMessageAction}`}
+            onClick={() => void refreshQuotaForFile(item, quotaType)}
+            disabled={!canRefreshQuota}
+          >
+            {t(`${config.i18nPrefix}.idle`)}
+          </button>
         ) : quotaStatus === 'error' ? (
           <div className={styles.quotaError}>
             {t(`${config.i18nPrefix}.load_failed`, {
@@ -1586,8 +1597,6 @@ export function AuthFilesPage() {
       quotaFilterType && resolveQuotaType(item) === quotaFilterType ? quotaFilterType : null;
 
     const showQuotaLayout = Boolean(quotaType) && !isRuntimeOnly;
-    const quotaState = quotaType ? getQuotaState(quotaType, item.name) : undefined;
-    const quotaRefreshing = quotaState?.status === 'loading';
 
     const providerCardClass =
       quotaType === 'antigravity'
@@ -1604,7 +1613,7 @@ export function AuthFilesPage() {
         className={`${styles.fileCard} ${providerCardClass} ${item.disabled ? styles.fileCardDisabled : ''}`}
       >
         <div
-          className={`${styles.fileCardLayout} ${showQuotaLayout ? styles.fileCardLayoutQuota : ''}`}
+          className={styles.fileCardLayout}
         >
           <div className={styles.fileCardMain}>
             <div className={styles.cardHeader}>
@@ -1722,29 +1731,6 @@ export function AuthFilesPage() {
               )}
             </div>
           </div>
-
-          {showQuotaLayout && quotaType && (
-            <div className={styles.fileCardSidebar}>
-              <div className={styles.fileCardSidebarHeader}>
-                <span className={styles.fileCardSidebarTitle}>
-                  {t('auth_files.card_tools_title')}
-                </span>
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  className={styles.iconButton}
-                  onClick={() => void refreshQuotaForFile(item, quotaType)}
-                  disabled={disableControls || item.disabled}
-                  loading={quotaRefreshing}
-                  title={t('auth_files.quota_refresh_single')}
-                  aria-label={t('auth_files.quota_refresh_single')}
-                >
-                  {!quotaRefreshing && <IconRefreshCw className={styles.actionIcon} size={16} />}
-                </Button>
-              </div>
-              <div className={styles.fileCardSidebarHint}>{t('auth_files.quota_refresh_hint')}</div>
-            </div>
-          )}
         </div>
       </div>
     );
@@ -1886,7 +1872,7 @@ export function AuthFilesPage() {
         )}
       </Card>
 
-      {/* OAuth 排除列表卡片 */}
+      {/* OAuth 模型禁用卡片 */}
       <Card
         title={t('oauth_excluded.title')}
         extra={
@@ -2120,7 +2106,7 @@ export function AuthFilesPage() {
                   title={
                     isExcluded
                       ? t('auth_files.models_excluded_hint', {
-                          defaultValue: '此模型已被 OAuth 排除',
+                          defaultValue: '此 OAuth 模型已被禁用',
                         })
                       : t('common.copy', { defaultValue: '点击复制' })
                   }
@@ -2132,7 +2118,7 @@ export function AuthFilesPage() {
                   {model.type && <span className={styles.modelType}>{model.type}</span>}
                   {isExcluded && (
                     <span className={styles.modelExcludedBadge}>
-                      {t('auth_files.models_excluded_badge', { defaultValue: '已排除' })}
+                      {t('auth_files.models_excluded_badge', { defaultValue: '已禁用' })}
                     </span>
                   )}
                 </div>
