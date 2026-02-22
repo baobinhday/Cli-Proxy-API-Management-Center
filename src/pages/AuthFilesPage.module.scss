@@ -5,6 +5,7 @@
   display: flex;
   flex-direction: column;
   gap: $spacing-lg;
+  padding-bottom: calc(var(--auth-files-action-bar-height, 0px) + 16px + env(safe-area-inset-bottom));
 }
 
 .pageHeader {
@@ -497,6 +498,15 @@
   }
 }
 
+.fileCardSelected {
+  border-color: var(--primary-color);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--primary-color) 70%, transparent);
+
+  &:hover {
+    border-color: var(--primary-color);
+  }
+}
+
 .fileCardDisabled {
   opacity: 0.6;
 
@@ -528,6 +538,45 @@
   min-height: 28px;
 }
 
+.selectionToggle {
+  width: 22px;
+  height: 22px;
+  margin: 0;
+  flex-shrink: 0;
+  border-radius: 7px;
+  border: 1px solid var(--border-color);
+  background: color-mix(in srgb, var(--bg-secondary) 92%, transparent);
+  color: var(--primary-contrast, #fff);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition:
+    border-color $transition-fast,
+    background-color $transition-fast,
+    box-shadow $transition-fast,
+    transform $transition-fast;
+
+  &:hover {
+    border-color: var(--primary-color);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary-color) 16%, transparent);
+  }
+
+  &:active {
+    transform: scale(0.95);
+  }
+}
+
+.selectionToggleActive {
+  border-color: var(--primary-color);
+  background: var(--primary-color);
+}
+
+.selectionToggleActive svg {
+  display: block;
+  stroke-width: 2.4;
+}
+
 .typeBadge {
   padding: 4px 10px;
   border-radius: 12px;
@@ -554,6 +603,69 @@
   padding: $spacing-xs 0;
   border-top: 1px solid var(--border-color);
   border-bottom: 1px solid var(--border-color);
+}
+
+.cardHealthRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: $spacing-sm;
+  flex-wrap: wrap;
+}
+
+.healthStatusBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px;
+  border-radius: $radius-full;
+  border: 1px solid var(--border-color);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.2;
+}
+
+.healthStatusHealthy {
+  color: var(--success-badge-text, #065f46);
+  background-color: var(--success-badge-bg, #d1fae5);
+  border-color: var(--success-badge-border, #6ee7b7);
+}
+
+.healthStatusWarning {
+  color: var(--warning-text);
+  background-color: var(--warning-bg);
+  border-color: var(--warning-border);
+}
+
+.healthStatusDisabled {
+  color: var(--text-secondary);
+  background-color: var(--bg-tertiary);
+  border-color: var(--border-color);
+}
+
+.healthStatusUnknown {
+  color: var(--text-secondary);
+  background-color: var(--bg-secondary);
+  border-style: dashed;
+}
+
+.lastRefreshText {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.lastRefreshStale {
+  color: var(--warning-text);
+}
+
+.healthStatusMessage {
+  font-size: 12px;
+  color: var(--warning-text);
+  background-color: var(--warning-bg);
+  border: 1px solid var(--warning-border);
+  border-radius: $radius-sm;
+  padding: 5px 8px;
+  word-break: break-word;
 }
 
 .cardStats {
@@ -876,6 +988,66 @@
   margin-top: $spacing-lg;
   padding-top: $spacing-md;
   border-top: 1px solid var(--border-color);
+}
+
+.batchActionContainer {
+  position: fixed;
+  left: var(--content-center-x, 50%);
+  bottom: calc(16px + env(safe-area-inset-bottom));
+  transform: translateX(-50%);
+  z-index: 50;
+  width: min(960px, calc(100vw - 24px));
+  will-change: transform, opacity;
+}
+
+.batchActionBar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: $spacing-sm;
+  padding: 10px 12px;
+  border-radius: $radius-lg;
+  border: 1px solid color-mix(in srgb, var(--border-color) 70%, transparent);
+  background: color-mix(in srgb, var(--bg-primary) 84%, transparent);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  box-shadow: var(--shadow-lg);
+}
+
+.batchActionLeft,
+.batchActionRight {
+  display: flex;
+  align-items: center;
+  gap: $spacing-xs;
+  flex-wrap: wrap;
+}
+
+.batchActionRight {
+  justify-content: flex-end;
+}
+
+.batchSelectionText {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-right: 2px;
+}
+
+@include mobile {
+  .batchActionContainer {
+    width: calc(100vw - 16px);
+    bottom: calc(12px + env(safe-area-inset-bottom));
+  }
+
+  .batchActionBar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .batchActionLeft,
+  .batchActionRight {
+    justify-content: center;
+  }
 }
 
 .pageInfo {

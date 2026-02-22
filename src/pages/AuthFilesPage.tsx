@@ -1,6 +1,8 @@
-import { useCallback, useEffect, useMemo, useState, type ChangeEvent } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ChangeEvent } from 'react';
+import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
+import gsap from 'gsap';
 import { useInterval } from '@/hooks/useInterval';
 import { useHeaderRefresh } from '@/hooks/useHeaderRefresh';
 import { usePageTransitionLayer } from '@/components/common/PageTransitionLayer';
@@ -16,6 +18,7 @@ import {
   clampCardPageSize,
   getTypeColor,
   getTypeLabel,
+  isRuntimeOnlyAuthFile,
   normalizeProviderKey,
   type QuotaProviderType,
   type ResolvedTheme
@@ -54,10 +57,17 @@ export function AuthFilesPage() {
   const [detailModalOpen, setDetailModalOpen] = useState(false);
   const [selectedFile, setSelectedFile] = useState<AuthFileItem | null>(null);
   const [viewMode, setViewMode] = useState<'diagram' | 'list'>('list');
+  const [batchActionBarVisible, setBatchActionBarVisible] = useState(false);
+  const [nowMs, setNowMs] = useState(() => Date.now());
+  const floatingBatchActionsRef = useRef<HTMLDivElement>(null);
+  const previousSelectionCountRef = useRef(0);
+  const selectionCountRef = useRef(0);
 
-  const { keyStats, usageDetails, loadKeyStats } = useAuthFilesStats();
+  const { keyStats, usageDetails, loadKeyStats, refreshKeyStats } = useAuthFilesStats();
   const {
     files,
+    selectedFiles,
+    selectionCount,
     loading,
     error,
     uploading,
@@ -71,8 +81,13 @@ export function AuthFilesPage() {
     handleDelete,
     handleDeleteAll,
     handleDownload,
-    handleStatusToggle
-  } = useAuthFilesData({ refreshKeyStats: loadKeyStats });
+    handleStatusToggle,
+    toggleSelect,
+    selectAllVisible,
+    deselectAll,
+    batchSetStatus,
+    batchDelete
+  } = useAuthFilesData({ refreshKeyStats });
 
   const statusBarCache = useAuthFilesStatusBarCache(files, usageDetails);
 
@@ -115,7 +130,7 @@ export function AuthFilesPage() {
   } = useAuthFilesPrefixProxyEditor({
     disableControls: connectionStatus !== 'connected',
     loadFiles,
-    loadKeyStats
+    loadKeyStats: refreshKeyStats
   });
 
   const disableControls = connectionStatus !== 'connected';
@@ -189,20 +204,26 @@ export function AuthFilesPage() {
   };
 
   const handleHeaderRefresh = useCallback(async () => {
-    await Promise.all([loadFiles(), loadKeyStats(), loadExcluded(), loadModelAlias()]);
-  }, [loadFiles, loadKeyStats, loadExcluded, loadModelAlias]);
+    await Promise.all([loadFiles(), refreshKeyStats(), loadExcluded(), loadModelAlias()]);
+  }, [loadFiles, refreshKeyStats, loadExcluded, loadModelAlias]);
 
   useHeaderRefresh(handleHeaderRefresh);
 
   useEffect(() => {
     if (!isCurrentLayer) return;
     loadFiles();
-    loadKeyStats();
+    void loadKeyStats().catch(() => {});
     loadExcluded();
     loadModelAlias();
   }, [isCurrentLayer, loadFiles, loadKeyStats, loadExcluded, loadModelAlias]);
 
-  useInterval(loadKeyStats, isCurrentLayer ? 240_000 : null);
+  useInterval(
+    () => {
+      void refreshKeyStats().catch(() => {});
+    },
+    isCurrentLayer ? 240_000 : null
+  );
+  useInterval(() => setNowMs(Date.now()), isCurrentLayer ? 60_000 : null);
 
   const existingTypes = useMemo(() => {
     const types = new Set<string>(['all']);
@@ -240,6 +261,11 @@ export function AuthFilesPage() {
   const currentPage = Math.min(page, totalPages);
   const start = (currentPage - 1) * pageSize;
   const pageItems = filtered.slice(start, start + pageSize);
+  const selectablePageItems = useMemo(
+    () => pageItems.filter((file) => !isRuntimeOnlyAuthFile(file)),
+    [pageItems]
+  );
+  const selectedNames = useMemo(() => Array.from(selectedFiles), [selectedFiles]);
 
   const showDetails = (file: AuthFileItem) => {
     setSelectedFile(file);
@@ -288,6 +314,72 @@ export function AuthFilesPage() {
     },
     [filter, navigate]
   );
+
+  useLayoutEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    const actionsEl = floatingBatchActionsRef.current;
+    if (!actionsEl) {
+      document.documentElement.style.removeProperty('--auth-files-action-bar-height');
+      return;
+    }
+
+    const updatePadding = () => {
+      const height = actionsEl.getBoundingClientRect().height;
+      document.documentElement.style.setProperty('--auth-files-action-bar-height', `${height}px`);
+    };
+
+    updatePadding();
+    window.addEventListener('resize', updatePadding);
+
+    const ro = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(updatePadding);
+    ro?.observe(actionsEl);
+
+    return () => {
+      ro?.disconnect();
+      window.removeEventListener('resize', updatePadding);
+      document.documentElement.style.removeProperty('--auth-files-action-bar-height');
+    };
+  }, [batchActionBarVisible, selectionCount]);
+
+  useEffect(() => {
+    selectionCountRef.current = selectionCount;
+    if (selectionCount > 0) {
+      setBatchActionBarVisible(true);
+    }
+  }, [selectionCount]);
+
+  useLayoutEffect(() => {
+    if (!batchActionBarVisible) return;
+    const currentCount = selectionCount;
+    const previousCount = previousSelectionCountRef.current;
+    const actionsEl = floatingBatchActionsRef.current;
+    if (!actionsEl) return;
+
+    gsap.killTweensOf(actionsEl);
+
+    if (currentCount > 0 && previousCount === 0) {
+      gsap.fromTo(
+        actionsEl,
+        { y: 56, autoAlpha: 0 },
+        { y: 0, autoAlpha: 1, duration: 0.28, ease: 'power3.out' }
+      );
+    } else if (currentCount === 0 && previousCount > 0) {
+      gsap.to(actionsEl, {
+        y: 56,
+        autoAlpha: 0,
+        duration: 0.22,
+        ease: 'power2.in',
+        onComplete: () => {
+          if (selectionCountRef.current === 0) {
+            setBatchActionBarVisible(false);
+          }
+        }
+      });
+    }
+
+    previousSelectionCountRef.current = currentCount;
+  }, [batchActionBarVisible, selectionCount]);
 
   const renderFilterTags = () => (
     <div className={styles.filterTags}>
@@ -419,6 +511,7 @@ export function AuthFilesPage() {
               <AuthFileCard
                 key={file.name}
                 file={file}
+                selected={selectedFiles.has(file.name)}
                 resolvedTheme={resolvedTheme}
                 disableControls={disableControls}
                 deleting={deleting}
@@ -426,12 +519,14 @@ export function AuthFilesPage() {
                 quotaFilterType={quotaFilterType}
                 keyStats={keyStats}
                 statusBarCache={statusBarCache}
+                nowMs={nowMs}
                 onShowModels={showModels}
                 onShowDetails={showDetails}
                 onDownload={handleDownload}
                 onOpenPrefixProxyEditor={openPrefixProxyEditor}
                 onDelete={handleDelete}
                 onToggleStatus={handleStatusToggle}
+                onToggleSelect={toggleSelect}
               />
             ))}
           </div>
@@ -520,6 +615,57 @@ export function AuthFilesPage() {
         onSave={handlePrefixProxySave}
         onChange={handlePrefixProxyChange}
       />
+
+      {batchActionBarVisible && typeof document !== 'undefined'
+        ? createPortal(
+            <div className={styles.batchActionContainer} ref={floatingBatchActionsRef}>
+              <div className={styles.batchActionBar}>
+                <div className={styles.batchActionLeft}>
+                  <span className={styles.batchSelectionText}>
+                    {t('auth_files.batch_selected', { count: selectionCount })}
+                  </span>
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    onClick={() => selectAllVisible(pageItems)}
+                    disabled={selectablePageItems.length === 0}
+                  >
+                    {t('auth_files.batch_select_all')}
+                  </Button>
+                  <Button variant="ghost" size="sm" onClick={deselectAll}>
+                    {t('auth_files.batch_deselect')}
+                  </Button>
+                </div>
+                <div className={styles.batchActionRight}>
+                  <Button
+                    size="sm"
+                    onClick={() => batchSetStatus(selectedNames, true)}
+                    disabled={disableControls || selectedNames.length === 0}
+                  >
+                    {t('auth_files.batch_enable')}
+                  </Button>
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    onClick={() => batchSetStatus(selectedNames, false)}
+                    disabled={disableControls || selectedNames.length === 0}
+                  >
+                    {t('auth_files.batch_disable')}
+                  </Button>
+                  <Button
+                    variant="danger"
+                    size="sm"
+                    onClick={() => batchDelete(selectedNames)}
+                    disabled={disableControls || selectedNames.length === 0}
+                  >
+                    {t('common.delete')}
+                  </Button>
+                </div>
+              </div>
+            </div>,
+            document.body
+          )
+        : null}
     </div>
   );
 }
